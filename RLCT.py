@@ -9,8 +9,11 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
+import numpy as np
+
 # Training settings
-parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+parser = argparse.ArgumentParser(description='RLCT MNIST Example')
+parser.add_argument('--R',type=int,default=100,help='number of MC draws from approximate posterior q (default:100')
 parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
@@ -30,8 +33,8 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
 parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
                     help='prior used (default: gaussian)',
                     choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
-
 args = parser.parse_args()
+
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 # setting up prior parameters
@@ -72,6 +75,8 @@ test_loader = torch.utils.data.DataLoader(
                    ])),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 
+n = len(train_loader.dataset)
+
 
 class Net(nn.Module):
     def __init__(self):
@@ -89,9 +94,15 @@ class Net(nn.Module):
         x = x.view(-1, 320)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        return F.log_softmax(x)
+        return F.log_softmax(x, dim=1)
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 model = Net()
+print('(number of trainable network parameters)/2: {}'.format(count_parameters(model)//2))
+
 var_model = pyvarinf.Variationalize(model)
 var_model.set_prior(args.prior, **prior_parameters)
 if args.cuda:
@@ -99,6 +110,8 @@ if args.cuda:
 
 optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
+
+weight = torch.ones(10)/np.log(args.batch_size) # TODO: don't hardcode the number of target categories
 
 
 def train(epoch):
@@ -108,10 +121,10 @@ def train(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
-        output = var_model(data)
-        loss_error = F.nll_loss(output, target)
-        loss_prior = var_model.prior_loss() / 60000
-        loss = loss_error + loss_prior
+        output = var_model(data) # what does var_model(data) actually do? does it first draw a sample of the network parameter and then apply the model?
+        loss_error = F.nll_loss(output, target, weight=weight)
+        loss_prior = var_model.prior_loss() / n  # why this division? documentation says "The model is only sent once, thus the division by the number of datapoints used to train"
+        loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
@@ -119,21 +132,23 @@ def train(epoch):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
 
+
 def test(epoch):
     var_model.eval()
     test_loss = 0
     correct = 0
-    for data, target in test_loader:
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
-        output = var_model(data)
-        test_loss += F.nll_loss(output, target).data.item()
-        pred = output.data.max(1)[1] # get the index of the max log-probability
-        correct += pred.eq(target.data).cpu().sum()
+    with torch.no_grad():
+        for data, target in test_loader:
+            if args.cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
+            output = var_model(data)
+            test_loss += F.nll_loss(output, target).data.item()
+            pred = output.data.max(1)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data).cpu().sum()
 
     test_loss = test_loss
-    test_loss /= len(test_loader) # loss function already averages over batch size
+    test_loss /= len(test_loader)  # loss function already averages over batch size
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
@@ -142,3 +157,24 @@ def test(epoch):
 for epoch in range(1, args.epochs + 1):
     train(epoch)
     test(epoch)
+
+sample = pyvarinf.Sample(var_model=var_model)
+beta2 = 1.5/np.log(n)
+beta1 = 1/np.log(n)
+nlls = np.empty(0)
+
+for r in range(1,args.R+1):  # TODO: this for loop is suuuupppeeerrrr slow
+    nll = np.empty(0)
+    with torch.no_grad():
+        for batch_idx, (data, target) in enumerate(train_loader):
+            if args.cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
+            sample.draw()
+            output = sample(data)
+            nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().numpy()))
+        nlls = np.append(nlls, np.array(nll.sum()))
+
+
+RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
+print('RLCT estimate: {}'.format(RLCT_estimate))
