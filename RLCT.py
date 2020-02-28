@@ -10,6 +10,10 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 
 import numpy as np
+import timeit
+from joblib import Parallel, delayed
+import multiprocessing
+import statistics
 
 # Training settings
 parser = argparse.ArgumentParser(description='RLCT MNIST Example')
@@ -18,7 +22,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=100, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -111,7 +115,7 @@ if args.cuda:
 optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
 
-weight = torch.ones(10)/np.log(args.batch_size) # TODO: don't hardcode the number of target categories
+weight = torch.ones(10)/np.log(args.batch_size)  #TODO: don't hardcode the number of target categories
 
 
 def train(epoch):
@@ -123,7 +127,7 @@ def train(epoch):
         optimizer.zero_grad()
         output = var_model(data) # what does var_model(data) actually do? does it first draw a sample of the network parameter and then apply the model?
         loss_error = F.nll_loss(output, target, weight=weight)
-        loss_prior = var_model.prior_loss() / n  # why this division? documentation says "The model is only sent once, thus the division by the number of datapoints used to train"
+        loss_prior = var_model.prior_loss() / n  # TODO: why this division? documentation says "The model is only sent once, thus the division by the number of datapoints used to train"
         loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
@@ -163,18 +167,34 @@ beta2 = 1.5/np.log(n)
 beta1 = 1/np.log(n)
 nlls = np.empty(0)
 
-for r in range(1,args.R+1):  # TODO: this for loop is suuuupppeeerrrr slow
-    nll = np.empty(0)
-    with torch.no_grad():
-        for batch_idx, (data, target) in enumerate(train_loader):
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-            data, target = Variable(data), Variable(target)
-            sample.draw()
-            output = sample(data)
-            nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().numpy()))
-        nlls = np.append(nlls, np.array(nll.sum()))
 
+def qsamples_nll(r):
+    nll = np.empty(0)
+    for batch_idx, (data, target) in enumerate(train_loader):
+        if args.cuda:
+            data, target = data.cuda(), target.cuda()
+        data, target = Variable(data), Variable(target)
+        sample.draw()
+        output = sample(data)
+        nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().numpy()))
+    return nll.sum()
+
+start = timeit.timeit()
+for r in range(1,args.R+1):  # TODO: this for loop is suuuupppeeerrrr slow
+    with torch.no_grad():
+        nllsum = qsamples_nll(r)
+        nlls = np.append(nlls, np.array(nllsum))
+end = timeit.timeit()
+print('for loop time: {}'.format(end - start))
+
+start = timeit.timeit()
+my_list = range(args.R)
+num_cores = multiprocessing.cpu_count()
+nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
+    qsamples_nll)(i)for i in my_list)
+end = timeit.timeit()
+nlls = np.asarray(nlls)
+print('parallelize time: {}'.format(end - start))
 
 RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
 print('RLCT estimate: {}'.format(RLCT_estimate))
