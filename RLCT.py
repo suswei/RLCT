@@ -12,7 +12,7 @@ from torch.autograd import Variable
 import numpy as np
 from joblib import Parallel, delayed
 import multiprocessing
-import sys
+import os
 
 class Net(nn.Module):
     def __init__(self):
@@ -123,6 +123,12 @@ def main():
     RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
     print('RLCT estimate: {}'.format(RLCT_estimate))
 
+    if os.path.isfile('./{}.npy'.format(args.prior)):
+        results = np.load('./{}.npy'.format(args.prior))
+    else:
+        results = np.empty(0)
+    results = np.append(results,RLCT_estimate)
+    np.save('./{}'.format(args.prior), results)
 
 if __name__ == "__main__":
 
