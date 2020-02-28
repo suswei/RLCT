@@ -198,3 +198,7 @@ if __name__ == "__main__":
 
     n = len(train_loader.dataset)
     main()
+
+# can run this in bash
+# for i in {1..200}; do python RLCT.py --R 500 --epochs 100; done
+# saves the 200 MC results to "prior.npy"
