@@ -10,77 +10,9 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 
 import numpy as np
-import timeit
 from joblib import Parallel, delayed
 import multiprocessing
-import statistics
-
-# Training settings
-parser = argparse.ArgumentParser(description='RLCT MNIST Example')
-parser.add_argument('--R',type=int,default=100,help='number of MC draws from approximate posterior q (default:100')
-parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                    help='input batch size for training (default: 64)')
-parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                    help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=100, metavar='N',
-                    help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                    help='learning rate (default: 0.01)')
-parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
-                    help='SGD momentum (default: 0.5)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='disables CUDA training')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
-                    help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                    help='how many batches to wait before logging training status')
-parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
-                    help='prior used (default: gaussian)',
-                    choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
-args = parser.parse_args()
-
-args.cuda = not args.no_cuda and torch.cuda.is_available()
-
-# setting up prior parameters
-prior_parameters = {}
-if args.prior != 'gaussian':
-    prior_parameters['n_mc_samples'] = 1
-if args.prior == 'mixtgauss':
-    prior_parameters['sigma_1'] = 0.02
-    prior_parameters['sigma_2'] = 0.2
-    prior_parameters['pi'] = 0.5
-if args.prior == 'conjugate':
-    prior_parameters['mu_0'] = 0.
-    prior_parameters['kappa_0'] = 3.
-    prior_parameters['alpha_0'] = .5
-    prior_parameters['beta_0'] = .5
-if args.prior == 'conjugate_known_mean':
-    prior_parameters['alpha_0'] = .5
-    prior_parameters['beta_0'] = .5
-    prior_parameters['mean'] = 0.
-
-torch.manual_seed(args.seed)
-if args.cuda:
-    torch.cuda.manual_seed(args.seed)
-
-
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('data', train=True, download=True,
-                   transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ])),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('data', train=False, transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ])),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
-
-n = len(train_loader.dataset)
-
+import sys
 
 class Net(nn.Module):
     def __init__(self):
@@ -104,21 +36,10 @@ class Net(nn.Module):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-model = Net()
-print('(number of trainable network parameters)/2: {}'.format(count_parameters(model)//2))
-
-var_model = pyvarinf.Variationalize(model)
-var_model.set_prior(args.prior, **prior_parameters)
-if args.cuda:
-    var_model.cuda()
-
-optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
 
-weight = torch.ones(10)/np.log(args.batch_size)  #TODO: don't hardcode the number of target categories
 
-
-def train(epoch):
+def train(epoch,var_model,optimizer,weight):
     var_model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
@@ -137,7 +58,7 @@ def train(epoch):
                 100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
 
 
-def test(epoch):
+def test(epoch,var_model):
     var_model.eval()
     test_loss = 0
     correct = 0
@@ -158,17 +79,7 @@ def test(epoch):
         100. * correct / len(test_loader.dataset)))
 
 
-for epoch in range(1, args.epochs + 1):
-    train(epoch)
-    test(epoch)
-
-sample = pyvarinf.Sample(var_model=var_model)
-beta2 = 1.5/np.log(n)
-beta1 = 1/np.log(n)
-nlls = np.empty(0)
-
-
-def qsamples_nll(r):
+def qsamples_nll(r,sample):
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
@@ -179,22 +90,105 @@ def qsamples_nll(r):
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().numpy()))
     return nll.sum()
 
-start = timeit.timeit()
-for r in range(1,args.R+1):  # TODO: this for loop is suuuupppeeerrrr slow
-    with torch.no_grad():
-        nllsum = qsamples_nll(r)
-        nlls = np.append(nlls, np.array(nllsum))
-end = timeit.timeit()
-print('for loop time: {}'.format(end - start))
 
-start = timeit.timeit()
-my_list = range(args.R)
-num_cores = multiprocessing.cpu_count()
-nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-    qsamples_nll)(i)for i in my_list)
-end = timeit.timeit()
-nlls = np.asarray(nlls)
-print('parallelize time: {}'.format(end - start))
+def main():
 
-RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
-print('RLCT estimate: {}'.format(RLCT_estimate))
+    model = Net()
+    print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
+
+    var_model = pyvarinf.Variationalize(model)
+    var_model.set_prior(args.prior, **prior_parameters)
+    if args.cuda:
+        var_model.cuda()
+
+    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+
+    weight = torch.ones(10) / np.log(args.batch_size)  # TODO: don't hardcode the number of target categories
+
+
+    for epoch in range(1, args.epochs + 1):
+        train(epoch,var_model,optimizer,weight)
+        test(epoch,var_model)
+
+    sample = pyvarinf.Sample(var_model=var_model)
+    beta2 = 1.5/np.log(n)
+    beta1 = 1/np.log(n)
+
+    my_list = range(args.R)
+    num_cores = multiprocessing.cpu_count()
+    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
+        qsamples_nll)(i,sample)for i in my_list)
+    nlls = np.asarray(nlls)
+
+    RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
+    print('RLCT estimate: {}'.format(RLCT_estimate))
+
+
+if __name__ == "__main__":
+
+    # Training settings
+    parser = argparse.ArgumentParser(description='RLCT MNIST Example')
+    parser.add_argument('--R', type=int, default=100,
+                        help='number of MC draws from approximate posterior q (default:100')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+                        help='number of epochs to train (default: 10)')
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+                        help='learning rate (default: 0.01)')
+    parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+                        help='SGD momentum (default: 0.5)')
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
+    parser.add_argument('--seed', type=int, default=1, metavar='S',
+                        help='random seed (default: 1)')
+    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                        help='how many batches to wait before logging training status')
+    parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
+                        help='prior used (default: gaussian)',
+                        choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
+    args = parser.parse_args()
+
+    args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+    # setting up prior parameters
+    prior_parameters = {}
+    if args.prior != 'gaussian':
+        prior_parameters['n_mc_samples'] = 1
+    if args.prior == 'mixtgauss':
+        prior_parameters['sigma_1'] = 0.02
+        prior_parameters['sigma_2'] = 0.2
+        prior_parameters['pi'] = 0.5
+    if args.prior == 'conjugate':
+        prior_parameters['mu_0'] = 0.
+        prior_parameters['kappa_0'] = 3.
+        prior_parameters['alpha_0'] = .5
+        prior_parameters['beta_0'] = .5
+    if args.prior == 'conjugate_known_mean':
+        prior_parameters['alpha_0'] = .5
+        prior_parameters['beta_0'] = .5
+        prior_parameters['mean'] = 0.
+
+    torch.manual_seed(args.seed)
+    if args.cuda:
+        torch.cuda.manual_seed(args.seed)
+
+    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('data', train=True, download=True,
+                       transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('data', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+
+    n = len(train_loader.dataset)
+    main()
