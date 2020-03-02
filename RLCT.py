@@ -14,6 +14,8 @@ from joblib import Parallel, delayed
 import multiprocessing
 import os
 
+import random
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -87,7 +89,7 @@ def qsamples_nll(r,sample):
         data, target = Variable(data), Variable(target)
         sample.draw()
         output = sample(data)
-        nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().numpy()))
+        nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
     return nll.sum()
 
 
@@ -103,8 +105,11 @@ def main():
 
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
+    device = torch.device("cuda" if args.cuda else "cpu")
     weight = torch.ones(10) / np.log(args.batch_size)  # TODO: don't hardcode the number of target categories
 
+    if args.cuda:
+        weight = weight.to(device)
 
     for epoch in range(1, args.epochs + 1):
         train(epoch,var_model,optimizer,weight)
@@ -115,9 +120,10 @@ def main():
     beta1 = 1/np.log(n)
 
     my_list = range(args.R)
-    num_cores = multiprocessing.cpu_count()
+    num_cores = 1 # multiprocessing.cpu_count()
     nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-        qsamples_nll)(i,sample)for i in my_list)
+        qsamples_nll)(i,sample) for i in my_list)
+    #nlls = [qsamples_nll(i,sample) for i in my_list]
     nlls = np.asarray(nlls)
 
     RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
@@ -131,6 +137,7 @@ def main():
     np.save('./{}'.format(args.prior), results)
 
 if __name__ == "__main__":
+    random.seed()
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT MNIST Example')
@@ -158,6 +165,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    print("args.cuda is " + str(args.cuda))
 
     # setting up prior parameters
     prior_parameters = {}
@@ -177,9 +185,10 @@ if __name__ == "__main__":
         prior_parameters['beta_0'] = .5
         prior_parameters['mean'] = 0.
 
-    torch.manual_seed(args.seed)
-    if args.cuda:
-        torch.cuda.manual_seed(args.seed)
+    # Daniel
+    #torch.manual_seed(args.seed)
+    #if args.cuda:
+    #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     train_loader = torch.utils.data.DataLoader(
