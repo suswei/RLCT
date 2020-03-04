@@ -2,43 +2,21 @@ from __future__ import print_function
 import argparse
 import pyvarinf
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-from torchvision import datasets, transforms
 from torch.autograd import Variable
 
 import numpy as np
 from joblib import Parallel, delayed
-import multiprocessing
 import os
-
 import random
 
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-        self.bn1 = nn.BatchNorm2d(10)
-        self.bn2 = nn.BatchNorm2d(20)
-
-    def forward(self, x):
-        x = self.bn1(F.relu(F.max_pool2d(self.conv1(x), 2)))
-        x = self.bn2(F.relu(F.max_pool2d(self.conv2(x), 2)))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
+import models
+from dataset_factory import get_dataset_by_id
 
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
 
 
 def train(epoch,var_model,optimizer,weight):
@@ -93,9 +71,10 @@ def qsamples_nll(r,sample):
     return nll.sum()
 
 
-def main():
+def estimateBayesRLCT():
 
-    model = Net()
+    if args.network == 'cnn':
+        model = models.CNN()
     print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
 
     var_model = pyvarinf.Variationalize(model)
@@ -147,6 +126,8 @@ if __name__ == "__main__":
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
+    parser.add_argument('--dataset-name', type=str, default='MNIST',help='dataset name from dataset_factory')
+    parser.add_argument('--network',type=str, default='cnn', help='name of network in models')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -191,22 +172,10 @@ if __name__ == "__main__":
     #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('data', train=False, transform=transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
-        ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
+    train_loader, test_loader = get_dataset_by_id(args,kwargs)
 
     n = len(train_loader.dataset)
-    main()
+    estimateBayesRLCT()
 
 # can run this in bash
 # for i in {1..200}; do python RLCT.py --R 500 --epochs 100; done
