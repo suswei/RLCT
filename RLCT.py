@@ -24,7 +24,10 @@ def train(epoch,var_model,optimizer,weight):
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
+        if args.network == 'CNN':
+            data, target = Variable(data), Variable(target)
+        else:
+            data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
         optimizer.zero_grad()
         output = var_model(data) # what does var_model(data) actually do? does it first draw a sample of the network parameter and then apply the model?
         loss_error = F.nll_loss(output, target, weight=weight)
@@ -46,7 +49,10 @@ def test(epoch,var_model):
         for data, target in test_loader:
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
-            data, target = Variable(data), Variable(target)
+            if args.network == 'CNN':
+                data, target = Variable(data), Variable(target)
+            else:
+                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
             output = var_model(data)
             test_loss += F.nll_loss(output, target).data.item()
             pred = output.data.max(1)[1]  # get the index of the max log-probability
@@ -59,24 +65,34 @@ def test(epoch,var_model):
         100. * correct / len(test_loader.dataset)))
 
 
-def qsamples_nll(r,sample):
+def rsamples_nll(r,sample):
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
+        if args.network == 'CNN':
+            data, target = Variable(data), Variable(target)
+        else:
+            data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
         sample.draw()
         output = sample(data)
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
     return nll.sum()
 
 
+# TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 def estimateBayesRLCT():
 
-    if args.network == 'cnn':
-        model = models.CNN()
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
     print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
 
+    # variationalize model
     var_model = pyvarinf.Variationalize(model)
     var_model.set_prior(args.prior, **prior_parameters)
     if args.cuda:
@@ -85,24 +101,26 @@ def estimateBayesRLCT():
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
     device = torch.device("cuda" if args.cuda else "cpu")
-    weight = torch.ones(10) / np.log(args.batch_size)  # TODO: don't hardcode the number of target categories
-
+    beta2 = 2.25/np.log(n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
+    beta1 = 2/np.log(n)
+    weight = beta1 * np.log(n) * torch.ones(output_dim) / np.log(args.batch_size)
     if args.cuda:
         weight = weight.to(device)
 
+    # train
     for epoch in range(1, args.epochs + 1):
-        train(epoch,var_model,optimizer,weight)
+        train(epoch, var_model, optimizer, weight)
         test(epoch,var_model)
 
+    # sample from variational distribution r
     sample = pyvarinf.Sample(var_model=var_model)
-    beta2 = 1.5/np.log(n)
-    beta1 = 1/np.log(n)
+
 
     my_list = range(args.R)
     num_cores = 1 # multiprocessing.cpu_count()
     nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-        qsamples_nll)(i,sample) for i in my_list)
-    #nlls = [qsamples_nll(i,sample) for i in my_list]
+        rsamples_nll)(i,sample) for i in my_list)
+    #nlls = [rsamples_nll(i,sample) for i in my_list]
     nlls = np.asarray(nlls)
 
     RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
@@ -115,7 +133,9 @@ def estimateBayesRLCT():
     results = np.append(results,RLCT_estimate)
     np.save('./{}'.format(args.prior), results)
 
+
 if __name__ == "__main__":
+
     random.seed()
 
     # Training settings
@@ -127,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--dataset-name', type=str, default='MNIST',help='dataset name from dataset_factory')
-    parser.add_argument('--network',type=str, default='cnn', help='name of network in models')
+    parser.add_argument('--network',type=str, default='CNN', help='name of network in models')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -172,7 +192,7 @@ if __name__ == "__main__":
     #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    train_loader, test_loader = get_dataset_by_id(args,kwargs)
+    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args,kwargs)
 
     n = len(train_loader.dataset)
     estimateBayesRLCT()

@@ -22,4 +22,11 @@ def get_dataset_by_id(args,kwargs):
             ])),
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
-    return train_loader, test_loader
+        # to know the dataset better
+        dataiter = iter(train_loader)
+        images, labels = dataiter.next()
+        input_dim = images.shape[2]*images.shape[3]
+        ouptut_dim = 10 # TODO: how do I extract this from the dataloader?
+
+
+    return train_loader, test_loader, input_dim, ouptut_dim
