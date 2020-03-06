@@ -5,7 +5,7 @@ from torchvision import datasets, transforms
 
 def get_dataset_by_id(args,kwargs):
 
-    if args.dataset_name == 'MNIST':
+    if args.dataset_name in ('MNIST', 'MNIST-binary'):
 
         train_loader = torch.utils.data.DataLoader(
             datasets.MNIST('data', train=True, download=True,
@@ -26,7 +26,15 @@ def get_dataset_by_id(args,kwargs):
         dataiter = iter(train_loader)
         images, labels = dataiter.next()
         input_dim = images.shape[2]*images.shape[3]
-        ouptut_dim = 10 # TODO: how do I extract this from the dataloader?
+
+        if args.dataset_name == 'MNIST':
+            output_dim = 10  # TODO: how do I extract this from the dataloader?
+        else:
+            output_dim = 2
+
+    else:
+        print('Not a valid dataset name. See options in dataset-factory')
 
 
-    return train_loader, test_loader, input_dim, ouptut_dim
+
+    return train_loader, test_loader, input_dim, output_dim

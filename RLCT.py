@@ -19,19 +19,29 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train(epoch,var_model,optimizer,weight):
+def train(epoch,var_model,optimizer):
+
     var_model.train()
+
     for batch_idx, (data, target) in enumerate(train_loader):
+
+        if args.dataset_name == 'MNIST-binary':
+            for ind, y_val in enumerate(target):
+                target[ind] = 0 if y_val < 5 else 1
+
         if args.cuda:
             data, target = data.cuda(), target.cuda()
+
         if args.network == 'CNN':
             data, target = Variable(data), Variable(target)
         else:
             data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+
         optimizer.zero_grad()
-        output = var_model(data) # what does var_model(data) actually do? does it first draw a sample of the network parameter and then apply the model?
-        loss_error = F.nll_loss(output, target, weight=weight)
-        loss_prior = var_model.prior_loss() / n  # TODO: why this division? documentation says "The model is only sent once, thus the division by the number of datapoints used to train"
+        # var_model draw a sample of the network parameter and then applies the network with the sampled weights
+        output = var_model(data)
+        loss_error = F.nll_loss(output, target, reduction="mean")
+        loss_prior = var_model.prior_loss() / (args.beta1/np.log(n)*n)
         loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
@@ -47,12 +57,19 @@ def test(epoch,var_model):
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
+
+            if args.dataset_name == 'MNIST-binary':
+                for ind, y_val in enumerate(target):
+                    target[ind] = 0 if y_val < 5 else 1
+
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
+
             if args.network == 'CNN':
                 data, target = Variable(data), Variable(target)
             else:
                 data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+
             output = var_model(data)
             test_loss += F.nll_loss(output, target).data.item()
             pred = output.data.max(1)[1]  # get the index of the max log-probability
@@ -68,12 +85,19 @@ def test(epoch,var_model):
 def rsamples_nll(r,sample):
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
+
+        if args.dataset_name == 'MNIST-binary':
+            for ind, y_val in enumerate(target):
+                target[ind] = 0 if y_val < 5 else 1
+
         if args.cuda:
             data, target = data.cuda(), target.cuda()
+
         if args.network == 'CNN':
             data, target = Variable(data), Variable(target)
         else:
             data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+
         sample.draw()
         output = sample(data)
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
@@ -83,6 +107,11 @@ def rsamples_nll(r,sample):
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 def estimateBayesRLCT():
 
+    device = torch.device("cuda" if args.cuda else "cpu")
+    beta2 = (args.beta1+0.05)/np.log(n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
+    beta1 = args.beta1/np.log(n)
+
+
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
@@ -90,7 +119,15 @@ def estimateBayesRLCT():
         model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-    print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
+    print(model)
+    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
+    if args.dataset_name == 'MNIST-binary' and args.network == 'logistic':
+        print('(number of trainable network parameters)/2: {}'.format(785 // 2))
+    elif args.dataset_name == 'MNIST' and args.network == 'logistic':
+        print('(number of trainable network parameters)/2: {}'.format(785*9 // 2))
+    else:
+        print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
+
 
     # variationalize model
     var_model = pyvarinf.Variationalize(model)
@@ -100,16 +137,9 @@ def estimateBayesRLCT():
 
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
-    device = torch.device("cuda" if args.cuda else "cpu")
-    beta2 = 2.25/np.log(n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
-    beta1 = 2/np.log(n)
-    weight = beta1 * np.log(n) * torch.ones(output_dim) / np.log(args.batch_size)
-    if args.cuda:
-        weight = weight.to(device)
-
     # train
     for epoch in range(1, args.epochs + 1):
-        train(epoch, var_model, optimizer, weight)
+        train(epoch, var_model, optimizer)
         test(epoch,var_model)
 
     # sample from variational distribution r
@@ -122,6 +152,7 @@ def estimateBayesRLCT():
         rsamples_nll)(i,sample) for i in my_list)
     #nlls = [rsamples_nll(i,sample) for i in my_list]
     nlls = np.asarray(nlls)
+    print(nlls)
 
     RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
     print('RLCT estimate: {}'.format(RLCT_estimate))
@@ -150,6 +181,7 @@ if __name__ == "__main__":
     parser.add_argument('--network',type=str, default='CNN', help='name of network in models')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
+    parser.add_argument('--beta1',type=float, default = 1.0, help = 'beta1 inverse temperature')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -192,7 +224,7 @@ if __name__ == "__main__":
     #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args,kwargs)
+    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
 
     n = len(train_loader.dataset)
     estimateBayesRLCT()
