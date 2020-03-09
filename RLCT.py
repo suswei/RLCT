@@ -32,10 +32,13 @@ def train(epoch,var_model,optimizer):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
 
-        if args.network == 'CNN':
-            data, target = Variable(data), Variable(target)
+        if args.dataset_name in ('MNIST', 'MNIST-binary'):
+            if args.network == 'CNN':
+                data, target = Variable(data), Variable(target)
+            else:
+                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
         else:
-            data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+            data, target = Variable(data), Variable(target)
 
         optimizer.zero_grad()
         # var_model draw a sample of the network parameter and then applies the network with the sampled weights
@@ -65,10 +68,13 @@ def test(epoch,var_model):
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
 
-            if args.network == 'CNN':
-                data, target = Variable(data), Variable(target)
+            if args.dataset_name in ('MNIST', 'MNIST-binary'):
+                if args.network == 'CNN':
+                    data, target = Variable(data), Variable(target)
+                else:
+                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
             else:
-                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+                data, target = Variable(data), Variable(target)
 
             output = var_model(data)
             test_loss += F.nll_loss(output, target).data.item()
@@ -93,10 +99,13 @@ def rsamples_nll(r,sample):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
 
-        if args.network == 'CNN':
-            data, target = Variable(data), Variable(target)
+        if args.dataset_name in ('MNIST', 'MNIST-binary'):
+            if args.network == 'CNN':
+                data, target = Variable(data), Variable(target)
+            else:
+                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
         else:
-            data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+            data, target = Variable(data), Variable(target)
 
         sample.draw()
         output = sample(data)
@@ -120,11 +129,15 @@ def estimateBayesRLCT():
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
     print(model)
+
+    # straight up count number of parameters in the model
     # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
     if args.dataset_name == 'MNIST-binary' and args.network == 'logistic':
-        print('(number of trainable network parameters)/2: {}'.format(785 // 2))
+        print('(number of trainable network parameters)/2: {}'.format((input_dim+1) // 2))
     elif args.dataset_name == 'MNIST' and args.network == 'logistic':
-        print('(number of trainable network parameters)/2: {}'.format(785*9 // 2))
+        print('(number of trainable network parameters)/2: {}'.format((input_dim+1)*9 // 2))
+    elif args.dataset_name == 'iris-binary' and args.network == 'logistic':
+        print('(number of trainable network parameters)/2: {}'.format((input_dim+1) // 2))
     else:
         print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
 
