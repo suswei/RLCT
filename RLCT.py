@@ -129,7 +129,7 @@ def main():
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--dataset-name', type=str, default='MNIST', help='dataset name from dataset_factory.py')
     parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--beta1', type=float, default=1.0, help='beta1 inverse temperature numerator')
     parser.add_argument('--beta2', type=float, default=1.5, help='beta2 inverse temperature numerator')
@@ -180,7 +180,7 @@ def main():
     args.n = len(train_loader.dataset)
 
     device = torch.device("cuda" if args.cuda else "cpu")
-    beta2 = args.beta2/np.log(args.n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
+    beta2 = args.beta2/np.log(args.n)
     beta1 = args.beta1/np.log(args.n)
 
 
