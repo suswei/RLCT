@@ -19,7 +19,7 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train(epoch,var_model,optimizer):
+def train(epoch, train_loader, var_model, optimizer, args):
 
     var_model.train()
 
@@ -44,7 +44,7 @@ def train(epoch,var_model,optimizer):
         # var_model draw a sample of the network parameter and then applies the network with the sampled weights
         output = var_model(data)
         loss_error = F.nll_loss(output, target, reduction="mean")
-        loss_prior = var_model.prior_loss() / (args.beta1/np.log(n)*n)
+        loss_prior = var_model.prior_loss() / (args.beta1/np.log(args.n)*args.n)
         loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
@@ -54,7 +54,7 @@ def train(epoch,var_model,optimizer):
                 100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
 
 
-def test(epoch,var_model):
+def test(epoch, test_loader, var_model, args):
     var_model.eval()
     test_loss = 0
     correct = 0
@@ -88,7 +88,7 @@ def test(epoch,var_model):
         100. * correct / len(test_loader.dataset)))
 
 
-def rsamples_nll(r,sample):
+def rsamples_nll(r, train_loader, sample, args):
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -114,87 +114,25 @@ def rsamples_nll(r,sample):
 
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
-def estimateBayesRLCT():
-
-    device = torch.device("cuda" if args.cuda else "cpu")
-    beta2 = (args.beta1+0.05)/np.log(n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
-    beta1 = args.beta1/np.log(n)
-
-
-    # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-    print(model)
-
-    # straight up count number of parameters in the model
-    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
-    if args.dataset_name == 'MNIST-binary' and args.network == 'logistic':
-        print('(number of trainable network parameters)/2: {}'.format((input_dim+1) // 2))
-    elif args.dataset_name == 'MNIST' and args.network == 'logistic':
-        print('(number of trainable network parameters)/2: {}'.format((input_dim+1)*9 // 2))
-    elif args.dataset_name == 'iris-binary' and args.network == 'logistic':
-        print('(number of trainable network parameters)/2: {}'.format((input_dim+1) // 2))
-    else:
-        print('(number of trainable network parameters)/2: {}'.format(count_parameters(model) // 2))
-
-
-    # variationalize model
-    var_model = pyvarinf.Variationalize(model)
-    var_model.set_prior(args.prior, **prior_parameters)
-    if args.cuda:
-        var_model.cuda()
-
-    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
-
-    # train
-    for epoch in range(1, args.epochs + 1):
-        train(epoch, var_model, optimizer)
-        test(epoch,var_model)
-
-    # sample from variational distribution r
-    sample = pyvarinf.Sample(var_model=var_model)
-
-
-    my_list = range(args.R)
-    num_cores = 1 # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-        rsamples_nll)(i,sample) for i in my_list)
-    #nlls = [rsamples_nll(i,sample) for i in my_list]
-    nlls = np.asarray(nlls)
-    print(nlls)
-
-    RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
-    print('RLCT estimate: {}'.format(RLCT_estimate))
-
-    if os.path.isfile('./{}.npy'.format(args.prior)):
-        results = np.load('./{}.npy'.format(args.prior))
-    else:
-        results = np.empty(0)
-    results = np.append(results,RLCT_estimate)
-    np.save('./{}'.format(args.prior), results)
-
-
-if __name__ == "__main__":
+# estimating Bayes RLCT based on variational inference
+def main():
 
     random.seed()
 
     # Training settings
-    parser = argparse.ArgumentParser(description='RLCT MNIST Example')
+    parser = argparse.ArgumentParser(description='RLCT')
     parser.add_argument('--R', type=int, default=100,
                         help='number of MC draws from approximate posterior q (default:100')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--dataset-name', type=str, default='MNIST',help='dataset name from dataset_factory')
-    parser.add_argument('--network',type=str, default='CNN', help='name of network in models')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--dataset-name', type=str, default='MNIST', help='dataset name from dataset_factory.py')
+    parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--beta1',type=float, default = 1.0, help = 'beta1 inverse temperature')
+    parser.add_argument('--beta1', type=float, default=1.0, help='beta1 inverse temperature numerator')
+    parser.add_argument('--beta2', type=float, default=1.5, help='beta2 inverse temperature numerator')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -209,6 +147,7 @@ if __name__ == "__main__":
                         help='prior used (default: gaussian)',
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
     args = parser.parse_args()
+    print(vars(args))
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
@@ -232,15 +171,79 @@ if __name__ == "__main__":
         prior_parameters['mean'] = 0.
 
     # Daniel
-    #torch.manual_seed(args.seed)
-    #if args.cuda:
+    # torch.manual_seed(args.seed)
+    # if args.cuda:
     #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+    args.n = len(train_loader.dataset)
 
-    n = len(train_loader.dataset)
-    estimateBayesRLCT()
+    device = torch.device("cuda" if args.cuda else "cpu")
+    beta2 = args.beta2/np.log(args.n) # if beta2 is not chosen carefully, we can easily get NaN for RLCT_estimate
+    beta1 = args.beta1/np.log(args.n)
+
+
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+    print(model)
+
+    # d/2
+    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
+    if args.network == 'logistic':
+        if args.dataset_name in ('MNIST-binary','iris-binary','breastcancer-binary'):
+            don2 = (input_dim+1) // 2
+        elif args.dataset_name == 'MNIST':
+            don2 = (input_dim+1)*9 // 2
+    else:
+        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
+
+    print('(number of parameters)/2: {}'.format(don2))
+
+    # variationalize model
+    var_model = pyvarinf.Variationalize(model)
+    var_model.set_prior(args.prior, **prior_parameters)
+    if args.cuda:
+        var_model.cuda()
+
+    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+
+    # train
+    for epoch in range(1, args.epochs + 1):
+        train(epoch, train_loader, var_model, optimizer, args)
+        test(epoch, test_loader, var_model, args)
+
+    # sample from variational distribution r
+    sample = pyvarinf.Sample(var_model=var_model)
+
+
+    my_list = range(args.R)
+    num_cores = 1 # multiprocessing.cpu_count()
+    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
+        rsamples_nll)(i,train_loader, sample, args) for i in my_list)
+    #nlls = [rsamples_nll(i,sample) for i in my_list]
+    nlls = np.asarray(nlls)
+    print(nlls)
+
+    RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
+    print('RLCT estimate: {}'.format(RLCT_estimate))
+
+    if os.path.isfile('./{}_{}.npy'.format(args.dataset_name,args.network)):
+        results = np.load('./{}_{}.npy'.format(args.dataset_name,args.network))
+    else:
+        results = np.empty(0)
+    results = np.append(results,RLCT_estimate)
+    np.save('./{}_{}'.format(args.dataset_name,args.network), results)
+
+
+if __name__ == "__main__":
+
+    main()
 
 # can run this in bash
 # for i in {1..200}; do python RLCT.py --R 500 --epochs 100; done
