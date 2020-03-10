@@ -18,7 +18,7 @@ def main(taskid):
     elif dataset_num == 1:
         os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.5")
     else:
-        os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --beta1 0.1 --beta2 0.6")
+        os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --beta1 0.25 --beta2 0.3")
 
 if __name__ == "__main__":
     main(sys.argv[1:])

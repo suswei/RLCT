@@ -2,8 +2,8 @@ from __future__ import print_function
 import torch
 from torchvision import datasets, transforms
 from sklearn.datasets import load_iris, load_breast_cancer
-from sklearn.cross_validation import train_test_split
-from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from torch.utils.data import TensorDataset
 from torch import Tensor
 
 def get_dataset_by_id(args,kwargs):
