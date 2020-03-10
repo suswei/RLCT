@@ -10,6 +10,7 @@ import numpy as np
 from joblib import Parallel, delayed
 import os
 import random
+import copy
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -19,7 +20,7 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train(epoch, train_loader, var_model, optimizer, args):
+def train(epoch, train_loader, var_model, optimizer, args, beta):
 
     var_model.train()
 
@@ -44,7 +45,7 @@ def train(epoch, train_loader, var_model, optimizer, args):
         # var_model draw a sample of the network parameter and then applies the network with the sampled weights
         output = var_model(data)
         loss_error = F.nll_loss(output, target, reduction="mean")
-        loss_prior = var_model.prior_loss() / (args.beta1/np.log(args.n)*args.n)
+        loss_prior = var_model.prior_loss() / (beta*args.n)
         loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
@@ -111,6 +112,27 @@ def rsamples_nll(r, train_loader, sample, args):
         output = sample(data)
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
     return nll.sum()
+
+def variationalize_Ewbeta(var_model, optimizer, args, train_loader, test_loader, beta):
+
+
+    # train
+    for epoch in range(1, args.epochs + 1):
+        train(epoch, train_loader, var_model, optimizer, args, beta)
+        test(epoch, test_loader, var_model, args)
+
+    # sample from variational distribution r
+    sample = pyvarinf.Sample(var_model=var_model)
+
+
+    my_list = range(args.R)
+    num_cores = 1 # multiprocessing.cpu_count()
+    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
+        rsamples_nll)(i,train_loader, sample, args) for i in my_list)
+    #nlls = [rsamples_nll(i,sample) for i in my_list]
+    nlls = np.asarray(nlls)
+
+    return(nlls)
 
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
@@ -184,6 +206,7 @@ def main():
     beta1 = args.beta1/np.log(args.n)
 
 
+
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
@@ -192,6 +215,7 @@ def main():
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
     print(model)
+    model2 = copy.deepcopy(model)
 
     # d/2
     # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
@@ -205,39 +229,35 @@ def main():
 
     print('(number of parameters)/2: {}'.format(don2))
 
-    # variationalize model
+    # variationalize model for beta1
     var_model = pyvarinf.Variationalize(model)
     var_model.set_prior(args.prior, **prior_parameters)
     if args.cuda:
         var_model.cuda()
 
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+    nlls_beta1 = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta1)
 
-    # train
-    for epoch in range(1, args.epochs + 1):
-        train(epoch, train_loader, var_model, optimizer, args)
-        test(epoch, test_loader, var_model, args)
+    # variationalize model for beta2
+    var_model2 = pyvarinf.Variationalize(model2)
+    var_model2.set_prior(args.prior, **prior_parameters)
+    if args.cuda:
+        var_model2.cuda()
+    optimizer2 = optim.Adam(var_model2.parameters(), lr=args.lr)
+    nlls_beta2 = variationalize_Ewbeta(var_model2, optimizer2, args, train_loader, test_loader, beta2)
 
-    # sample from variational distribution r
-    sample = pyvarinf.Sample(var_model=var_model)
 
+    RLCT_estimate_beta1 = (nlls_beta1.mean() - (nlls_beta1*np.exp(-(beta2-beta1)*nlls_beta1)).mean()/(np.exp(-(beta2-beta1)*nlls_beta1)).mean())/(1/beta1-1/beta2)
+    RLCT_estimate_variationalize_both = (nlls_beta1.mean() - nlls_beta2.mean())/(1/beta1-1/beta2)
 
-    my_list = range(args.R)
-    num_cores = 1 # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-        rsamples_nll)(i,train_loader, sample, args) for i in my_list)
-    #nlls = [rsamples_nll(i,sample) for i in my_list]
-    nlls = np.asarray(nlls)
-    print(nlls)
-
-    RLCT_estimate = (nlls.mean() - (nlls*np.exp(-(beta2-beta1)*nlls)).mean()/(np.exp(-(beta2-beta1)*nlls)).mean())/(1/beta1-1/beta2)
-    print('RLCT estimate: {}'.format(RLCT_estimate))
+    print('RLCT estimate beta1 only: {}'.format(RLCT_estimate_beta1))
+    print('RLCT estimate variationalize both: {}'.format(RLCT_estimate_variationalize_both))
 
     if os.path.isfile('./{}_{}.npy'.format(args.dataset_name,args.network)):
         results = np.load('./{}_{}.npy'.format(args.dataset_name,args.network))
     else:
         results = np.empty(0)
-    results = np.append(results,RLCT_estimate)
+    results = np.append(results,RLCT_estimate_variationalize_both)
     np.save('./{}_{}'.format(args.dataset_name,args.network), results)
 
 
