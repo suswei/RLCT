@@ -14,11 +14,11 @@ def main(taskid):
     dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
     if dataset_num == 0:
-        os.system("python3 RLCT.py --dataset-name breastcancer-binary --network logistic --epochs 100 --batch-size 10")
+        os.system("python3 RLCT.py --dataset-name breastcancer-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.05")
     elif dataset_num == 1:
-        os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --epochs 100 --batch-size 10")
+        os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.05")
     else:
-        os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --bl 50")
+        os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --epochs 100 --beta1 1 --beta2 1.05")
 
 if __name__ == "__main__":
     main(sys.argv[1:])
