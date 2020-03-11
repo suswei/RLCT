@@ -228,7 +228,7 @@ def main():
     var_model_initial = pyvarinf.Variationalize(model)
 
     # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
-    betas =  np.linspace(0.1,1.2,args.betalinspace)
+    betas =  np.linspace(0.1,1.2,args.bl)
     nlls_betas = np.empty(0)
     for beta in betas:
 
