@@ -152,8 +152,7 @@ def main():
                         help='input batch size for training (default: 64)')
     parser.add_argument('--R', type=int, default=100,
                         help='number of MC draws from approximate posterior q (default:100')
-    parser.add_argument('--beta1', type=float, default=1.0, help='beta1 inverse temperature numerator')
-    parser.add_argument('--beta2', type=float, default=1.05, help='beta2 inverse temperature numerator')
+    parser.add_argument('--bl',type=int,default=100,help='how many betas should be swept')
     # not so crucial parameters can accept defaults
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -203,12 +202,6 @@ def main():
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
 
-    device = torch.device("cuda" if args.cuda else "cpu")
-    beta2 = args.beta2/np.log(args.n)
-    beta1 = args.beta1/np.log(args.n)
-
-
-
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
@@ -231,40 +224,35 @@ def main():
 
     print('(number of parameters)/2: {}'.format(don2))
 
-    # variationalize model for beta1
-    var_model = pyvarinf.Variationalize(model)
-    var_model.set_prior(args.prior, **prior_parameters)
-    if args.cuda:
-        var_model.cuda()
+    # variationalize model
+    var_model_initial = pyvarinf.Variationalize(model)
 
-    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
-    nlls_beta1 = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta1)
+    # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
+    betas =  np.linspace(0.1,1.2,args.betalinspace)
+    nlls_betas = np.empty(0)
+    for beta in betas:
 
-    # variationalize model for beta2
-    var_model2 = pyvarinf.Variationalize(model2)
-    var_model2.set_prior(args.prior, **prior_parameters)
-    if args.cuda:
-        var_model2.cuda()
-    optimizer2 = optim.Adam(var_model2.parameters(), lr=args.lr)
-    nlls_beta2 = variationalize_Ewbeta(var_model2, optimizer2, args, train_loader, test_loader, beta2)
+        var_model = copy.deepcopy(var_model_initial)
+        var_model.set_prior(args.prior, **prior_parameters)
+        if args.cuda:
+            var_model.cuda()
+        optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+        nlls = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta)
 
+        nlls_betas = np.append(nlls_betas,nlls.mean())
 
-    RLCT_estimate_beta1 = (nlls_beta1.mean() - (nlls_beta1*np.exp(-(beta2-beta1)*nlls_beta1)).mean()/(np.exp(-(beta2-beta1)*nlls_beta1)).mean())/(1/beta1-1/beta2)
-    RLCT_estimate_variationalize_both = (nlls_beta1.mean() - nlls_beta2.mean())/(1/beta1-1/beta2)
-
-    print('RLCT estimate beta1 only: {}'.format(RLCT_estimate_beta1))
-    print('RLCT estimate variationalize both: {}'.format(RLCT_estimate_variationalize_both))
+    RLCT_estimate = np.polyfit(1/betas,nlls_betas,1)[0]
+    print(RLCT_estimate)
 
     if os.path.isfile('./{}_{}.npy'.format(args.dataset_name,args.network)):
         results = np.load('./{}_{}.npy'.format(args.dataset_name,args.network))
     else:
         results = np.empty(0)
-    results = np.append(results,RLCT_estimate_variationalize_both)
+    results = np.append(results,RLCT_estimate)
     np.save('./{}_{}'.format(args.dataset_name,args.network), results)
 
 
 if __name__ == "__main__":
-
     main()
 
 # can run this in bash
