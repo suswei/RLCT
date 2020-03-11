@@ -143,18 +143,20 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT')
-    parser.add_argument('--R', type=int, default=100,
-                        help='number of MC draws from approximate posterior q (default:100')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
+    # crucial parameters
     parser.add_argument('--dataset-name', type=str, default='MNIST', help='dataset name from dataset_factory.py')
     parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--R', type=int, default=100,
+                        help='number of MC draws from approximate posterior q (default:100')
     parser.add_argument('--beta1', type=float, default=1.0, help='beta1 inverse temperature numerator')
-    parser.add_argument('--beta2', type=float, default=1.5, help='beta2 inverse temperature numerator')
+    parser.add_argument('--beta2', type=float, default=1.05, help='beta2 inverse temperature numerator')
+    # not so crucial parameters can accept defaults
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -177,7 +179,7 @@ def main():
     # setting up prior parameters
     prior_parameters = {}
     if args.prior != 'gaussian':
-        prior_parameters['n_mc_samples'] = 1
+        prior_parameters['n_mc_samples'] = 10
     if args.prior == 'mixtgauss':
         prior_parameters['sigma_1'] = 0.02
         prior_parameters['sigma_2'] = 0.2
