@@ -1,0 +1,28 @@
+method: grid
+metric:
+  goal:
+  name: RLCT
+parameters:
+  network:
+    distribution: uniform
+    values:
+      - logistic
+  epochs:
+      distribution: uniform
+      values:
+        - 100
+  batch_size:
+    distribution: uniform
+    values:
+      - 10
+  betalogscale:
+    distribution: categorical
+    values:
+    - "true"
+    - "false"
+  dataset_name:
+    distribution: categorical
+    values:
+    - breastcancer-binary
+    - iris-binary
+program: RLCT.py

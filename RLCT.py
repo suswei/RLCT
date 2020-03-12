@@ -258,7 +258,7 @@ def main():
         RLCT_estimates = np.append(RLCT_estimates,estimate_RLCT_oneMC(args, kwargs, prior_parameters))
 
     wandb.log({
-        "RLCT boxplot": matplotlib.pyplot.boxplot(RLCT_estimates),
+        "RLCTs": RLCT_estimates,
         "RLCT mean": RLCT_estimates.mean(),
         "RLCT std": np.sqrt(RLCT_estimates.var())})
 
