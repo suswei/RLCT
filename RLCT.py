@@ -8,9 +8,10 @@ from torch.autograd import Variable
 
 import numpy as np
 from joblib import Parallel, delayed
-import os
 import random
 import copy
+import wandb
+import matplotlib
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -127,17 +128,66 @@ def variationalize_Ewbeta(var_model, optimizer, args, train_loader, test_loader,
 
     my_list = range(args.R)
     num_cores = 1 # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(
-        rsamples_nll)(i,train_loader, sample, args) for i in my_list)
-    #nlls = [rsamples_nll(i,sample) for i in my_list]
+    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(rsamples_nll)(i,train_loader, sample, args) for i in my_list)
     nlls = np.asarray(nlls)
 
     return(nlls)
 
+def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
+
+    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+    args.n = len(train_loader.dataset)
+
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+    print(model)
+
+    # d/2
+    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
+    if args.network == 'logistic':
+        if args.dataset_name in ('MNIST-binary','iris-binary','breastcancer-binary'):
+            don2 = (input_dim+1) // 2
+        elif args.dataset_name == 'MNIST':
+            don2 = (input_dim+1)*9 // 2
+    else:
+        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
+
+    print('(number of parameters)/2: {}'.format(don2))
+
+    # variationalize model
+    var_model_initial = pyvarinf.Variationalize(model)
+
+    # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
+    betas = np.linspace(0.1,1.2,args.bl)
+    if args.betalogscale:
+        betas = betas/np.log(args.n)
+
+    nlls_betas = np.empty(0)
+    for beta in betas:
+
+        var_model = copy.deepcopy(var_model_initial)
+        var_model.set_prior(args.prior, **prior_parameters)
+        if args.cuda:
+            var_model.cuda()
+        optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+        nlls = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta)
+
+        nlls_betas = np.append(nlls_betas,nlls.mean())
+
+    RLCT_estimate = np.polyfit(1/betas,nlls_betas,1)[0]
+    print(RLCT_estimate)
+    return RLCT_estimate
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 # estimating Bayes RLCT based on variational inference
 def main():
+
+    wandb.init()
 
     random.seed()
 
@@ -152,7 +202,9 @@ def main():
                         help='input batch size for training (default: 64)')
     parser.add_argument('--R', type=int, default=100,
                         help='number of MC draws from approximate posterior q (default:100')
-    parser.add_argument('--bl',type=int,default=100,help='how many betas should be swept')
+    parser.add_argument('--bl', type=int, default=100, help='how many betas should be swept')
+    parser.add_argument('--betalogscale',type=str,default=False, help='true if beta should be on 1/log n scale')
+    parser.add_argument('--MCs',type=int, default=50, help='number of times to split into train-test')
     # not so crucial parameters can accept defaults
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -171,6 +223,7 @@ def main():
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
     args = parser.parse_args()
     print(vars(args))
+    wandb.config.update(args)
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
@@ -199,57 +252,17 @@ def main():
     #    torch.cuda.manual_seed(args.seed)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-    args.n = len(train_loader.dataset)
 
-    # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-    print(model)
-    model2 = copy.deepcopy(model)
+    RLCT_estimates = np.empty(0)
+    for mc in range(0,args.MCs):
+        RLCT_estimates = np.append(RLCT_estimates,estimate_RLCT_oneMC(args, kwargs, prior_parameters))
 
-    # d/2
-    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
-    if args.network == 'logistic':
-        if args.dataset_name in ('MNIST-binary','iris-binary','breastcancer-binary'):
-            don2 = (input_dim+1) // 2
-        elif args.dataset_name == 'MNIST':
-            don2 = (input_dim+1)*9 // 2
-    else:
-        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
+    wandb.log({
+        "RLCT boxplot": matplotlib.pyplot.boxplot(RLCT_estimates),
+        "RLCT mean": RLCT_estimates.mean(),
+        "RLCT std": np.sqrt(RLCT_estimates.var())})
 
-    print('(number of parameters)/2: {}'.format(don2))
 
-    # variationalize model
-    var_model_initial = pyvarinf.Variationalize(model)
-
-    # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
-    betas =  np.linspace(0.1,1.2,args.bl)
-    nlls_betas = np.empty(0)
-    for beta in betas:
-
-        var_model = copy.deepcopy(var_model_initial)
-        var_model.set_prior(args.prior, **prior_parameters)
-        if args.cuda:
-            var_model.cuda()
-        optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
-        nlls = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta)
-
-        nlls_betas = np.append(nlls_betas,nlls.mean())
-
-    RLCT_estimate = np.polyfit(1/betas,nlls_betas,1)[0]
-    print(RLCT_estimate)
-
-    if os.path.isfile('./{}_{}.npy'.format(args.dataset_name,args.network)):
-        results = np.load('./{}_{}.npy'.format(args.dataset_name,args.network))
-    else:
-        results = np.empty(0)
-    results = np.append(results,RLCT_estimate)
-    np.save('./{}_{}'.format(args.dataset_name,args.network), results)
 
 
 if __name__ == "__main__":
