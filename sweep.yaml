@@ -4,15 +4,15 @@ metric:
   name: RLCT
 parameters:
   network:
-    distribution: uniform
+    distribution: categorical
     values:
       - logistic
   epochs:
-      distribution: uniform
+      distribution: categorical
       values:
         - 100
-  batch_size:
-    distribution: uniform
+  batch-size:
+    distribution: categorical
     values:
       - 10
   betalogscale:
@@ -20,7 +20,7 @@ parameters:
     values:
     - "true"
     - "false"
-  dataset_name:
+  dataset-name:
     distribution: categorical
     values:
     - breastcancer-binary
