@@ -201,10 +201,10 @@ def main():
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--R', type=int, default=20,
-                        help='number of MC draws from approximate posterior q (default:100')
-    parser.add_argument('--bl', type=int, default=50, help='how many betas should be swept')
+                        help='number of MC draws from approximate posterior q (default:20')
+    parser.add_argument('--bl', type=int, default=20, help='how many betas should be swept')
     parser.add_argument('--betalogscale',action="store_true", help='true if beta should be on 1/log n scale')
-    parser.add_argument('--MCs',type=int, default=50, help='number of times to split into train-test')
+    parser.add_argument('--MCs',type=int, default=10, help='number of times to split into train-test')
     # not so crucial parameters can accept defaults
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -257,10 +257,9 @@ def main():
     for mc in range(0,args.MCs):
         current_estimate = estimate_RLCT_oneMC(args, kwargs, prior_parameters)
         RLCT_estimates = np.append(RLCT_estimates,current_estimate)
-        wandb.run.summary["RLCT_estimate"] = current_estimate
+        wandb.run.summary["RLCT_estimates"] = RLCT_estimates
 
     wandb.log({
-        "RLCTs": RLCT_estimates,
         "RLCT mean": RLCT_estimates.mean(),
         "RLCT std": np.sqrt(RLCT_estimates.var())})
 

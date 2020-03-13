@@ -7,18 +7,18 @@ metric:
   name: RLCT
 parameters:
   network:
-    value:
+    values:
       - logistic
   epochs:
-      value:
+      values:
         - 100
   batchsize:
-    value:
+    values:
       - 10
   betalogscale:
     values:
-    - "true"
-    - "false"
+    - True
+    - False
   dataset:
     values:
     - breastcancer-binary
