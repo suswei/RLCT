@@ -263,12 +263,7 @@ def main():
         "RLCT mean": RLCT_estimates.mean(),
         "RLCT std": np.sqrt(RLCT_estimates.var())})
 
-
-
-
 if __name__ == "__main__":
     main()
 
-# can run this in bash
-# for i in {1..200}; do python RLCT.py --R 500 --epochs 100; done
-# saves the 200 MC results to "prior.npy"
+
