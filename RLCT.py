@@ -12,6 +12,10 @@ import random
 import copy
 import wandb
 import matplotlib
+from statsmodels.regression.linear_model import OLS, GLS
+from statsmodels.tools.tools import add_constant
+from scipy.linalg import toeplitz
+from matplotlib import pyplot as plt
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -163,9 +167,11 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
     var_model_initial = pyvarinf.Variationalize(model)
 
     # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
-    betas = np.linspace(0.1,1.2,args.bl)
+    betas = np.linspace(args.betasbegin,args.betasend,args.bl)
     if args.betalogscale:
         betas = betas/np.log(args.n)
+    if args.betaloglogscale:
+        betas = betas/np.log(np.log(args.n))
 
     nlls_betas = np.empty(0)
     for beta in betas:
@@ -179,7 +185,21 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
 
         nlls_betas = np.append(nlls_betas,nlls.mean())
 
-    RLCT_estimate = np.polyfit(1/betas,nlls_betas,1)[0]
+    # plt.scatter(1/betas,nlls_betas)
+
+    ##GLS fit for lambda
+    ols_model = OLS(nlls_betas, add_constant(1/betas)).fit()
+    ols_resid = ols_model.resid
+    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
+    rho = res_fit.params
+
+    order = toeplitz(np.arange(args.bl))
+    sigma = rho ** order
+
+    gls_model = GLS(nlls_betas, add_constant(1/betas), sigma=sigma)
+    gls_results = gls_model.fit()
+    RLCT_estimate = gls_results.params[1]
+
     print(RLCT_estimate)
     return RLCT_estimate
 
@@ -187,7 +207,7 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
 # estimating Bayes RLCT based on variational inference
 def main():
 
-    wandb.init(entity=susanwei)
+    wandb.init(entity='susanwei')
 
     random.seed()
 
@@ -200,11 +220,14 @@ def main():
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--R', type=int, default=20,
-                        help='number of MC draws from approximate posterior q (default:20')
-    parser.add_argument('--bl', type=int, default=20, help='how many betas should be swept')
+    parser.add_argument('--betasbegin',type=float, default=1.0, help='where beta range should begin')
+    parser.add_argument('--betasend', type=float, default=1.5, help='where beta range should end')
+    parser.add_argument('--bl', type=int, default=20, help='how many betas should be swept between betasbegin and betasend')
     parser.add_argument('--betalogscale',action="store_true", help='true if beta should be on 1/log n scale')
+    parser.add_argument('--betaloglogscale',action="store_true", help='true if beta should be on 1/log log n scale')
     parser.add_argument('--MCs',type=int, default=10, help='number of times to split into train-test')
+    parser.add_argument('--R', type=int, default=10,
+                        help='number of MC draws from approximate posterior q (default:10')
     # not so crucial parameters can accept defaults
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
