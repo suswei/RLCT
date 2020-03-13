@@ -187,7 +187,7 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
 # estimating Bayes RLCT based on variational inference
 def main():
 
-    wandb.init()
+    wandb.init(entity=susanwei)
 
     random.seed()
 
