@@ -27,14 +27,14 @@ def train(epoch, train_loader, var_model, optimizer, args, beta):
 
     for batch_idx, (data, target) in enumerate(train_loader):
 
-        if args.dataset_name == 'MNIST-binary':
+        if args.dataset == 'MNIST-binary':
             for ind, y_val in enumerate(target):
                 target[ind] = 0 if y_val < 5 else 1
 
         if args.cuda:
             data, target = data.cuda(), target.cuda()
 
-        if args.dataset_name in ('MNIST', 'MNIST-binary'):
+        if args.dataset in ('MNIST', 'MNIST-binary'):
             if args.network == 'CNN':
                 data, target = Variable(data), Variable(target)
             else:
@@ -63,14 +63,14 @@ def test(epoch, test_loader, var_model, args):
     with torch.no_grad():
         for data, target in test_loader:
 
-            if args.dataset_name == 'MNIST-binary':
+            if args.dataset == 'MNIST-binary':
                 for ind, y_val in enumerate(target):
                     target[ind] = 0 if y_val < 5 else 1
 
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
 
-            if args.dataset_name in ('MNIST', 'MNIST-binary'):
+            if args.dataset in ('MNIST', 'MNIST-binary'):
                 if args.network == 'CNN':
                     data, target = Variable(data), Variable(target)
                 else:
@@ -94,14 +94,14 @@ def rsamples_nll(r, train_loader, sample, args):
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
 
-        if args.dataset_name == 'MNIST-binary':
+        if args.dataset == 'MNIST-binary':
             for ind, y_val in enumerate(target):
                 target[ind] = 0 if y_val < 5 else 1
 
         if args.cuda:
             data, target = data.cuda(), target.cuda()
 
-        if args.dataset_name in ('MNIST', 'MNIST-binary'):
+        if args.dataset in ('MNIST', 'MNIST-binary'):
             if args.network == 'CNN':
                 data, target = Variable(data), Variable(target)
             else:
@@ -150,9 +150,9 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
     # d/2
     # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
     if args.network == 'logistic':
-        if args.dataset_name in ('MNIST-binary','iris-binary','breastcancer-binary'):
+        if args.dataset in ('MNIST-binary','iris-binary','breastcancer-binary'):
             don2 = (input_dim+1) // 2
-        elif args.dataset_name == 'MNIST':
+        elif args.dataset == 'MNIST':
             don2 = (input_dim+1)*9 // 2
     else:
         don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
@@ -194,16 +194,16 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT')
     # crucial parameters
-    parser.add_argument('--dataset-name', type=str, default='MNIST', help='dataset name from dataset_factory.py')
+    parser.add_argument('--dataset', type=str, default='MNIST', help='dataset name from dataset_factory.py')
     parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--R', type=int, default=100,
+    parser.add_argument('--R', type=int, default=20,
                         help='number of MC draws from approximate posterior q (default:100')
-    parser.add_argument('--bl', type=int, default=100, help='how many betas should be swept')
-    parser.add_argument('--betalogscale',type=str,default=False, help='true if beta should be on 1/log n scale')
+    parser.add_argument('--bl', type=int, default=50, help='how many betas should be swept')
+    parser.add_argument('--betalogscale',action="store_true", help='true if beta should be on 1/log n scale')
     parser.add_argument('--MCs',type=int, default=50, help='number of times to split into train-test')
     # not so crucial parameters can accept defaults
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',

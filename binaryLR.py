@@ -1,6 +1,6 @@
-# --dataset-name breastcancer-binary --network logistic --batch-size 10 --beta1 0.25 --beta2 0.75
+# --dataset-name breastcancer-binary --network logistic --batchsize 10 --beta1 0.25 --beta2 0.75
 #
-# --dataset-name iris-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.05
+# --dataset-name iris-binary --network logistic --batchsize 10 --beta1 1 --beta2 1.05
 #
 # --dataset-name MNIST-binary --network logistic --beta1 1 --beta2 1.05
 
@@ -14,9 +14,9 @@ def main(taskid):
     dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
     if dataset_num == 0:
-        os.system("python3 RLCT.py --dataset-name breastcancer-binary --network logistic --epochs 100 --batch-size 10")
+        os.system("python3 RLCT.py --dataset-name breastcancer-binary --network logistic --epochs 100 --batchsize 10")
     elif dataset_num == 1:
-        os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --epochs 100 --batch-size 10")
+        os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --epochs 100 --batchsize 10")
     else:
         os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --bl 50")
 

@@ -29,4 +29,4 @@ fi
 # Run the job from the directory where it was launched (default)
 
 # The job command(s):
-wandb agent --count 1 gfmpp720
+python sweep.py

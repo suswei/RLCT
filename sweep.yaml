@@ -4,24 +4,19 @@ metric:
   name: RLCT
 parameters:
   network:
-    distribution: categorical
-    values:
+    value:
       - logistic
   epochs:
-      distribution: categorical
-      values:
+      value:
         - 100
-  batch-size:
-    distribution: categorical
-    values:
+  batchsize:
+    value:
       - 10
   betalogscale:
-    distribution: categorical
     values:
     - "true"
     - "false"
-  dataset-name:
-    distribution: categorical
+  dataset:
     values:
     - breastcancer-binary
     - iris-binary
