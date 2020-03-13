@@ -255,7 +255,9 @@ def main():
 
     RLCT_estimates = np.empty(0)
     for mc in range(0,args.MCs):
-        RLCT_estimates = np.append(RLCT_estimates,estimate_RLCT_oneMC(args, kwargs, prior_parameters))
+        current_estimate = estimate_RLCT_oneMC(args, kwargs, prior_parameters)
+        RLCT_estimates = np.append(RLCT_estimates,current_estimate)
+        wandb.run.summary["RLCT_estimate"] = current_estimate
 
     wandb.log({
         "RLCTs": RLCT_estimates,

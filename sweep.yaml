@@ -1,3 +1,6 @@
+# Sanity check on regular model = binary logistic regression
+# Testing whether betalogscale matters
+# Restricted to small binary datasets
 method: grid
 metric:
   goal:
