@@ -5,13 +5,11 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-
 import numpy as np
 from joblib import Parallel, delayed
 import random
 import copy
 import wandb
-import matplotlib
 from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
@@ -25,7 +23,7 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train(epoch, train_loader, var_model, optimizer, args, beta):
+def train(epoch, train_loader, var_model, optimizer, args, beta, verbose=False):
 
     var_model.train()
 
@@ -54,13 +52,14 @@ def train(epoch, train_loader, var_model, optimizer, args, beta):
         loss = loss_error + loss_prior  # this is the ELBO
         loss.backward()
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
+        if verbose:
+            if batch_idx % args.log_interval == 0:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
+                    epoch, batch_idx * len(data), len(train_loader.dataset),
+                    100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
 
 
-def test(epoch, test_loader, var_model, args):
+def test(epoch, test_loader, var_model, args, verbose=False):
     var_model.eval()
     test_loss = 0
     correct = 0
@@ -89,9 +88,10 @@ def test(epoch, test_loader, var_model, args):
 
     test_loss = test_loss
     test_loss /= len(test_loader)  # loss function already averages over batch size
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+    if verbose:
+        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset)))
 
 
 def rsamples_nll(r, train_loader, sample, args):
@@ -118,29 +118,13 @@ def rsamples_nll(r, train_loader, sample, args):
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
     return nll.sum()
 
-def variationalize_Ewbeta(var_model, optimizer, args, train_loader, test_loader, beta):
 
 
-    # train
-    for epoch in range(1, args.epochs + 1):
-        train(epoch, train_loader, var_model, optimizer, args, beta)
-        test(epoch, test_loader, var_model, args)
+# estimate E_w^\beta[nL_n(w)] per beta per training-testing split
+def estimate_temperedNLL_perMC_perBeta(args, kwargs, prior_parameters, beta):
 
-    # sample from variational distribution r
-    sample = pyvarinf.Sample(var_model=var_model)
-
-
-    my_list = range(args.R)
-    num_cores = 1 # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=50)(delayed(rsamples_nll)(i,train_loader, sample, args) for i in my_list)
-    nlls = np.asarray(nlls)
-
-    return(nlls)
-
-def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
-
+    # draw new training-testing split
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-    args.n = len(train_loader.dataset)
 
     # retrieve model
     if args.network == 'CNN':
@@ -149,65 +133,37 @@ def estimate_RLCT_oneMC(args, kwargs, prior_parameters):
         model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-    print(model)
-
-    # d/2
-    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
-    if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary','iris-binary','breastcancer-binary'):
-            don2 = (input_dim+1) // 2
-        elif args.dataset == 'MNIST':
-            don2 = (input_dim+1)*9 // 2
-    else:
-        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
-
-    print('(number of parameters)/2: {}'.format(don2))
 
     # variationalize model
     var_model_initial = pyvarinf.Variationalize(model)
 
-    # sweep betas for hight temperature to low temperature paying no attention to recommended 1/log n scale
-    betas = np.linspace(args.betasbegin,args.betasend,args.bl)
-    if args.betalogscale:
-        betas = betas/np.log(args.n)
-    if args.betaloglogscale:
-        betas = betas/np.log(np.log(args.n))
+    var_model = copy.deepcopy(var_model_initial)
+    var_model.set_prior(args.prior, **prior_parameters)
+    if args.cuda:
+        var_model.cuda()
+    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
-    nlls_betas = np.empty(0)
-    for beta in betas:
+    # train var_model
+    for epoch in range(1, args.epochs + 1):
+        train(epoch, train_loader, var_model, optimizer, args, beta)
+        test(epoch, test_loader, var_model, args)
 
-        var_model = copy.deepcopy(var_model_initial)
-        var_model.set_prior(args.prior, **prior_parameters)
-        if args.cuda:
-            var_model.cuda()
-        optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
-        nlls = variationalize_Ewbeta(var_model,optimizer, args, train_loader, test_loader, beta)
+    # form sample object from variational distribution r
+    sample = pyvarinf.Sample(var_model=var_model)
 
-        nlls_betas = np.append(nlls_betas,nlls.mean())
+    # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
+    my_list = range(args.R)
+    num_cores = 1 # multiprocessing.cpu_count()
+    nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(rsamples_nll)(i,train_loader, sample, args) for i in my_list)
+    temperednlls_perMC_perBeta = np.asarray(nlls)
 
-    # plt.scatter(1/betas,nlls_betas)
-
-    ##GLS fit for lambda
-    ols_model = OLS(nlls_betas, add_constant(1/betas)).fit()
-    ols_resid = ols_model.resid
-    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
-    rho = res_fit.params
-
-    order = toeplitz(np.arange(args.bl))
-    sigma = rho ** order
-
-    gls_model = GLS(nlls_betas, add_constant(1/betas), sigma=sigma)
-    gls_results = gls_model.fit()
-    RLCT_estimate = gls_results.params[1]
-
-    print(RLCT_estimate)
-    return RLCT_estimate
+    return temperednlls_perMC_perBeta
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 # estimating Bayes RLCT based on variational inference
 def main():
 
-    wandb.init(entity='susanwei')
+    wandb.init(project="RLCT", entity="unimelb_rlct")
 
     random.seed()
 
@@ -220,11 +176,10 @@ def main():
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--betasbegin',type=float, default=1.0, help='where beta range should begin')
+    parser.add_argument('--betasbegin',type=float, default=0.5, help='where beta range should begin')
     parser.add_argument('--betasend', type=float, default=1.5, help='where beta range should end')
     parser.add_argument('--bl', type=int, default=20, help='how many betas should be swept between betasbegin and betasend')
     parser.add_argument('--betalogscale',action="store_true", help='true if beta should be on 1/log n scale')
-    parser.add_argument('--betaloglogscale',action="store_true", help='true if beta should be on 1/log log n scale')
     parser.add_argument('--MCs',type=int, default=10, help='number of times to split into train-test')
     parser.add_argument('--R', type=int, default=10,
                         help='number of MC draws from approximate posterior q (default:10')
@@ -276,15 +231,70 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
-    RLCT_estimates = np.empty(0)
-    for mc in range(0,args.MCs):
-        current_estimate = estimate_RLCT_oneMC(args, kwargs, prior_parameters)
-        RLCT_estimates = np.append(RLCT_estimates,current_estimate)
-        wandb.run.summary["RLCT_estimates"] = RLCT_estimates
+    # draw a training-testing split just to get some necessary parameters
+    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+    args.n = len(train_loader.dataset)
+
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+    print(model)
+
+    # d/2
+    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
+    if args.network == 'logistic':
+        if args.dataset in ('MNIST-binary','iris-binary','breastcancer-binary'):
+            don2 = (input_dim+1) // 2
+        elif args.dataset == 'MNIST':
+            don2 = (input_dim+1)*9 // 2
+    else:
+        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
+
+    print('(number of parameters)/2: {}'.format(don2))
+
+
+    # sweep betas
+    betas = np.linspace(args.betasbegin,args.betasend,args.bl)
+    if args.betalogscale:
+        betas = np.linspace(args.betasbegin/np.log(args.n),args.betasend/np.log(args.n),args.bl)
+
+    temperedNLL_perBeta = np.empty(0)
+    for beta in betas:
+        temperedNLL_perMC_perBeta = np.empty(0)
+        for mc in range(0,args.MCs):
+            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,estimate_temperedNLL_perMC_perBeta(args, kwargs, prior_parameters, beta))
+            print(mc)
+        print(beta)
+        temperedNLL_perBeta = np.append(temperedNLL_perBeta,temperedNLL_perMC_perBeta.mean())
+
+    plt.scatter(1/betas,temperedNLL_perBeta)
+
+    # GLS fit for lambda
+    ols_model = OLS(temperedNLL_perBeta, add_constant(1/betas)).fit()
+    RLCT_estimate_OLS = ols_model.params[1]
+
+    ols_resid = ols_model.resid
+    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
+    rho = res_fit.params
+
+    order = toeplitz(np.arange(args.bl))
+    sigma = rho ** order
+
+    gls_model = GLS(temperedNLL_perBeta, add_constant(1/betas), sigma=sigma)
+    gls_results = gls_model.fit()
+    RLCT_estimate_GLS = gls_results.params[1]
 
     wandb.log({
-        "RLCT mean": RLCT_estimates.mean(),
-        "RLCT std": np.sqrt(RLCT_estimates.var())})
+        "temperature (1/beta) versus temperedNLL_perBeta": plt,
+        "temperedNLL_perBeta": temperedNLL_perBeta,
+        "1/beta's": 1/betas,
+        "RLCT_estimate (OLS)": RLCT_estimate_OLS,
+        "RLCT_estimate (GLS)": RLCT_estimate_GLS,
+        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - don2)})
 
 if __name__ == "__main__":
     main()
