@@ -271,7 +271,7 @@ def main():
         print(beta)
         temperedNLL_perBeta = np.append(temperedNLL_perBeta,temperedNLL_perMC_perBeta.mean())
 
-    plt.scatter(1/betas,temperedNLL_perBeta)
+    # plt.scatter(1/betas,temperedNLL_perBeta)
 
     # GLS fit for lambda
     ols_model = OLS(temperedNLL_perBeta, add_constant(1/betas)).fit()
@@ -289,7 +289,6 @@ def main():
     RLCT_estimate_GLS = gls_results.params[1]
 
     wandb.log({
-        "temperature (1/beta) versus temperedNLL_perBeta": plt,
         "temperedNLL_perBeta": temperedNLL_perBeta,
         "1/beta's": 1/betas,
         "RLCT_estimate (OLS)": RLCT_estimate_OLS,
