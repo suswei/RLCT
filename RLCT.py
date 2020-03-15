@@ -121,10 +121,7 @@ def rsamples_nll(r, train_loader, sample, args):
 
 
 # estimate E_w^\beta[nL_n(w)] per beta per training-testing split
-def estimate_temperedNLL_perMC_perBeta(args, kwargs, prior_parameters, beta):
-
-    # draw new training-testing split
-    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+def estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs, prior_parameters, beta):
 
     # retrieve model
     if args.network == 'CNN':
@@ -157,13 +154,12 @@ def estimate_temperedNLL_perMC_perBeta(args, kwargs, prior_parameters, beta):
     nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(rsamples_nll)(i,train_loader, sample, args) for i in my_list)
     temperednlls_perMC_perBeta = np.asarray(nlls)
 
-    return temperednlls_perMC_perBeta
+    return temperednlls_perMC_perBeta.mean()
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 # estimating Bayes RLCT based on variational inference
 def main():
 
-    wandb.init(project="RLCT", entity="unimelb_rlct")
 
     random.seed()
 
@@ -172,18 +168,20 @@ def main():
     # crucial parameters
     parser.add_argument('--dataset', type=str, default='MNIST', help='dataset name from dataset_factory.py')
     parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--batchsize', type=int, default=64, metavar='N',
+    parser.add_argument('--batchsize', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--betasbegin',type=float, default=0.5, help='where beta range should begin')
+    parser.add_argument('--betasbegin',type=float, default=0.1, help='where beta range should begin')
     parser.add_argument('--betasend', type=float, default=1.5, help='where beta range should end')
     parser.add_argument('--bl', type=int, default=20, help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--betalogscale',action="store_true", help='true if beta should be on 1/log n scale')
-    parser.add_argument('--MCs',type=int, default=10, help='number of times to split into train-test')
-    parser.add_argument('--R', type=int, default=10,
+    parser.add_argument('--betalogscale',type=str, default='true', help='true if beta should be on 1/log n scale')
+    parser.add_argument('--MCs',type=int, default=20, help='number of times to split into train-test')
+    parser.add_argument('--R', type=int, default=20,
                         help='number of MC draws from approximate posterior q (default:10')
+    parser.add_argument('--fit_lambda_over_average',type=str,default='true', help='true lambda should be fit after averaging tempered nlls')
     # not so crucial parameters can accept defaults
+    parser.add_argument('--wandb_on',action="store_true",default=True,help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -201,7 +199,10 @@ def main():
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
     args = parser.parse_args()
     print(vars(args))
-    wandb.config.update(args)
+
+    if args.wandb_on:
+        wandb.init(project="RLCT", entity="unimelb_rlct")
+        wandb.config.update(args)
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
@@ -259,41 +260,85 @@ def main():
 
     # sweep betas
     betas = np.linspace(args.betasbegin,args.betasend,args.bl)
-    if args.betalogscale:
+    if args.betalogscale == 'true':
         betas = np.linspace(args.betasbegin/np.log(args.n),args.betasend/np.log(args.n),args.bl)
 
-    temperedNLL_perBeta = np.empty(0)
-    for beta in betas:
-        temperedNLL_perMC_perBeta = np.empty(0)
+    # Use E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
+    if args.fit_lambda_over_average == 'true':
+        temperedNLL_perBeta = np.empty(0)
+        for beta in betas:
+            temperedNLL_perMC_perBeta = np.empty(0)
+            for mc in range(0,args.MCs):
+
+                # draw new training-testing split
+                train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+                temp = estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs,
+                                                   prior_parameters, beta)
+                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,temp)
+                print(mc)
+            print(beta)
+            temperedNLL_perBeta = np.append(temperedNLL_perBeta,temperedNLL_perMC_perBeta.mean())
+
+        # GLS fit for lambda
+        ols_model = OLS(temperedNLL_perBeta, add_constant(1 / betas)).fit()
+        RLCT_estimate_OLS = ols_model.params[1]
+
+        ols_resid = ols_model.resid
+        res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
+        rho = res_fit.params
+
+        order = toeplitz(np.arange(args.bl))
+        sigma = rho ** order
+
+        gls_model = GLS(temperedNLL_perBeta, add_constant(1 / betas), sigma=sigma)
+        gls_results = gls_model.fit()
+        RLCT_estimate_GLS = gls_results.params[1]
+
+    # Use E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
+    else:
+
+        RLCT_estimates_GLS = np.empty(0)
+        RLCT_estimates_OLS = np.empty(0)
+
         for mc in range(0,args.MCs):
-            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,estimate_temperedNLL_perMC_perBeta(args, kwargs, prior_parameters, beta))
-            print(mc)
-        print(beta)
-        temperedNLL_perBeta = np.append(temperedNLL_perBeta,temperedNLL_perMC_perBeta.mean())
+
+            # draw new training-testing split
+            train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+
+            temperedNLL_perMC_perBeta = np.empty(0)
+            for beta in betas:
+                temp = estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs,
+                                                   prior_parameters, beta)
+                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,temp)
+
+            # GLS fit for lambda
+            ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
+            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS,ols_model.params[1])
+
+            ols_resid = ols_model.resid
+            res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
+            rho = res_fit.params
+
+            order = toeplitz(np.arange(args.bl))
+            sigma = rho ** order
+
+            gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma)
+            gls_results = gls_model.fit()
+
+            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS,gls_results.params[1])
+
+        RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
+        RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
 
     # plt.scatter(1/betas,temperedNLL_perBeta)
 
-    # GLS fit for lambda
-    ols_model = OLS(temperedNLL_perBeta, add_constant(1/betas)).fit()
-    RLCT_estimate_OLS = ols_model.params[1]
-
-    ols_resid = ols_model.resid
-    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
-    rho = res_fit.params
-
-    order = toeplitz(np.arange(args.bl))
-    sigma = rho ** order
-
-    gls_model = GLS(temperedNLL_perBeta, add_constant(1/betas), sigma=sigma)
-    gls_results = gls_model.fit()
-    RLCT_estimate_GLS = gls_results.params[1]
-
-    wandb.log({
-        "temperedNLL_perBeta": temperedNLL_perBeta,
-        "1/beta's": 1/betas,
+    results = dict({
         "RLCT_estimate (OLS)": RLCT_estimate_OLS,
         "RLCT_estimate (GLS)": RLCT_estimate_GLS,
         "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - don2)})
+
+    if args.wandb_on:
+        wandb.log(results)
 
 if __name__ == "__main__":
     main()

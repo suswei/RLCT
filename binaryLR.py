@@ -12,6 +12,7 @@ import os
 #   --betalogscale
 #   --betasbegin
 #   --betasend
+#   --fit_lambda_over_average
 #   --prior
 
 def main(taskid):
