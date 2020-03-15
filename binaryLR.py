@@ -20,11 +20,11 @@ def main(taskid):
     #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
     if dataset_num == 0:
-        os.system("python3 RLCT.py --dataset breastcancer-binary --network logistic --batchsize 10 --betalogscale --epochs 100 --R 100 --bl 100 --MCs 100")
+        os.system("python3 RLCT.py --dataset breastcancer-binary --epochs 100 --batchsize 10 --network logistic")
     elif dataset_num == 1:
-        os.system("python3 RLCT.py --dataset iris-binary --network logistic --batchsize 10 --betalogscale --epochs 100 --R 100 --bl 100 --MCs 100")
+        os.system("python3 RLCT.py --dataset iris-binary --epochs 100 --batchsize 10 --network logistic")
     else:
-        os.system("python3 RLCT.py --dataset MNIST-binary --network logistic --betalogscale --epochs 10 --R 100 --bl 100 --MCs 100")
+        os.system("python3 RLCT.py  --dataset MNIST-binary --epochs 10 --batchsize 64 --network logistic")
 
 if __name__ == "__main__":
     main(sys.argv[1:])
