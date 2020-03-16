@@ -173,16 +173,16 @@ def main():
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--betasbegin',type=float, default=0.1, help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=1.5, help='where beta range should end')
+    parser.add_argument('--betasend', type=float, default=2, help='where beta range should end')
     parser.add_argument('--betalogscale',type=str, default='true', help='true if beta should be on 1/log n scale')
     parser.add_argument('--fit_lambda_over_average',type=str,default='true', help='true lambda should be fit after averaging tempered nlls')
     # as high as possible
-    parser.add_argument('--bl', type=int, default=100, help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--MCs',type=int, default=100, help='number of times to split into train-test')
-    parser.add_argument('--R', type=int, default=100,
+    parser.add_argument('--bl', type=int, default=50, help='how many betas should be swept between betasbegin and betasend')
+    parser.add_argument('--MCs',type=int, default=50, help='number of times to split into train-test')
+    parser.add_argument('--R', type=int, default=20,
                         help='number of MC draws from approximate posterior q (default:10')
     # not so crucial parameters can accept defaults
-    parser.add_argument('--wandb_on',action="store_true",default=False,help='use wandb to log experiment')
+    parser.add_argument('--wandb_on',action="store_true",default=True,help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',

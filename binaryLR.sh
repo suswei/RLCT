@@ -32,4 +32,6 @@ fi
 # Run the job from the directory where it was launched (default)
 
 # The job command(s):
+module load web_proxy
+wandb login e0b3d65dc819aef2a9857e591d21a200bb350011
 python binaryLR.py ${SLURM_ARRAY_TASK_ID}
