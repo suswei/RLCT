@@ -166,23 +166,32 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT')
     # crucial parameters
-    parser.add_argument('--dataset', type=str, default='MNIST', help='dataset name from dataset_factory.py')
-    parser.add_argument('--network', type=str, default='CNN', help='name of network in models.py')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--dataset', type=str, default='MNIST',
+                        help='dataset name from dataset_factory.py (default:MNIST)')
+    parser.add_argument('--network', type=str, default='CNN',
+                        help='name of network in models.py (default:CNN)')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--betasbegin',type=float, default=0.1, help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=2, help='where beta range should end')
-    parser.add_argument('--betalogscale',type=str, default='true', help='true if beta should be on 1/log n scale')
-    parser.add_argument('--fit_lambda_over_average',type=str,default='true', help='true lambda should be fit after averaging tempered nlls')
+    parser.add_argument('--betasbegin',type=float, default=0.1,
+                        help='where beta range should begin')
+    parser.add_argument('--betasend', type=float, default=2,
+                        help='where beta range should end')
+    parser.add_argument('--betalogscale',type=str, default='true',
+                        help='true if beta should be on 1/log n scale')
+    parser.add_argument('--fit_lambda_over_average',type=str,default='true',
+                        help='true lambda should be fit after averaging tempered nlls')
     # as high as possible
-    parser.add_argument('--bl', type=int, default=50, help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--MCs',type=int, default=50, help='number of times to split into train-test')
-    parser.add_argument('--R', type=int, default=20,
-                        help='number of MC draws from approximate posterior q (default:10')
+    parser.add_argument('--bl', type=int, default=50,
+                        help='how many betas should be swept between betasbegin and betasend')
+    parser.add_argument('--MCs',type=int, default=50,
+                        help='number of times to split into train-test')
+    parser.add_argument('--R', type=int, default=50,
+                        help='number of MC draws from approximate posterior q (default:)')
     # not so crucial parameters can accept defaults
-    parser.add_argument('--wandb_on',action="store_true",default=True,help='use wandb to log experiment')
+    parser.add_argument('--wandb_on',action="store_true",default=True,
+                        help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -327,6 +336,7 @@ def main():
             gls_results = gls_model.fit()
 
             RLCT_estimates_GLS = np.append(RLCT_estimates_GLS,gls_results.params[1])
+            wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
 
         RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
         RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
