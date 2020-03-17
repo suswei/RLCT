@@ -1,24 +1,30 @@
-# --dataset-name breastcancer-binary --network logistic --batch-size 10 --beta1 0.25 --beta2 0.75
-#
-# --dataset-name iris-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.05
-#
-# --dataset-name MNIST-binary --network logistic --beta1 1 --beta2 1.05
-
 import numpy as np
 import sys
 import os
 
+# the followign parameters are computationally intensive but should be set as high as possible
+#   --R
+#   --epochs
+#   --bl
+#   --MCs
+
+# unclear factors at this point
+#   --betalogscale
+#   --betasbegin
+#   --betasend
+#   --fit_lambda_over_average
+#   --prior
 
 def main(taskid):
-    taskid = int(taskid[0])
-    dataset_num, mc = np.unravel_index(taskid, [3, 100])
+    dataset_num = int(taskid[0])
+    #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
     if dataset_num == 0:
-        os.system("python3 RLCT.py --dataset-name breastcancer-binary --network logistic --batch-size 10 --beta1 0.25 --beta2 0.75")
+        os.system("python3 RLCT.py --dataset breastcancer-binary --network logistic --epochs 100 --batchsize 10 --fit_lambda_over_average false --betalogscale --false")
     elif dataset_num == 1:
-        os.system("python3 RLCT.py --dataset-name iris-binary --network logistic --batch-size 10 --beta1 1 --beta2 1.5")
+        os.system("python3 RLCT.py --dataset iris-binary --network logistic  --epochs 100 --batchsize 10 --fit_lambda_over_average false --betalogscale --false")
     else:
-        os.system("python3 RLCT.py --dataset-name MNIST-binary --network logistic --epochs 10 --beta1 0.25 --beta2 0.4")
+        os.system("python3 RLCT.py  --dataset MNIST-binary --network logistic --epochs 10 --batchsize 64 --fit_lambda_over_average false --betalogscale --false")
 
 if __name__ == "__main__":
     main(sys.argv[1:])

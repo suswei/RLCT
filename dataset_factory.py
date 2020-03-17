@@ -8,7 +8,7 @@ from torch import Tensor
 
 def get_dataset_by_id(args,kwargs):
 
-    if args.dataset_name in ('MNIST', 'MNIST-binary'):
+    if args.dataset in ('MNIST', 'MNIST-binary'):
 
         train_loader = torch.utils.data.DataLoader(
             datasets.MNIST('data', train=True, download=True,
@@ -16,26 +16,26 @@ def get_dataset_by_id(args,kwargs):
                                transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                            ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+            batch_size=args.batchsize, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             datasets.MNIST('data', train=False, transform=transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize((0.1307,), (0.3081,))
             ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+            batch_size=args.batchsize, shuffle=True, **kwargs)
 
         # to know the dataset better
         dataiter = iter(train_loader)
         images, labels = dataiter.next()
         input_dim = images.shape[2]*images.shape[3]
 
-        if args.dataset_name == 'MNIST':
+        if args.dataset == 'MNIST':
             output_dim = 10  # TODO: how do I extract this from the dataloader?
         else:
             output_dim = 2
 
-    elif args.dataset_name == 'iris-binary':
+    elif args.dataset == 'iris-binary':
 
         iris = load_iris()
         X = iris.data
@@ -47,13 +47,13 @@ def get_dataset_by_id(args,kwargs):
         dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
         dataset_test = TensorDataset(Tensor(X_test), torch.as_tensor(y_test, dtype=torch.long))
 
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=True, **kwargs)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
         input_dim = 4
         output_dim = 2
 
-    elif args.dataset_name == 'breastcancer-binary':
+    elif args.dataset == 'breastcancer-binary':
 
         bc = load_breast_cancer()
         X = bc.data
@@ -64,8 +64,8 @@ def get_dataset_by_id(args,kwargs):
         dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
         dataset_test = TensorDataset(Tensor(X_test), torch.as_tensor(y_test, dtype=torch.long))
 
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=True, **kwargs)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
         input_dim = 30
         output_dim = 2

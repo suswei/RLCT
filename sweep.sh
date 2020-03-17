@@ -7,10 +7,7 @@
 #SBATCH --cpus-per-task=8
 
 # The maximum running time of the job in days-hours:mins:sec
-#SBATCH --time=2-0:0:00
-
-# Batch arrays
-#SBATCH --array=0-2
+#SBATCH --time=1-0:0:00
 
 # Send yourself an email when the job:
 # aborts abnormally (fails)
@@ -32,6 +29,4 @@ fi
 # Run the job from the directory where it was launched (default)
 
 # The job command(s):
-module load web_proxy
-wandb login e0b3d65dc819aef2a9857e591d21a200bb350011
-python binaryLR.py ${SLURM_ARRAY_TASK_ID}
+python sweep.py
