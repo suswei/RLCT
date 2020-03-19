@@ -1,18 +1,18 @@
 from __future__ import print_function
 import argparse
-import pyvarinf
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 import numpy as np
 from joblib import Parallel, delayed
 import random
-import copy
 from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
 from matplotlib import pyplot as plt
+from collections import OrderedDict
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -22,44 +22,8 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train(epoch, train_loader, var_model, optimizer, args, beta, verbose=False):
+def test(epoch, test_loader, model, args, verbose=False):
 
-    var_model.train()
-
-    for batch_idx, (data, target) in enumerate(train_loader):
-
-        if args.dataset == 'MNIST-binary':
-            for ind, y_val in enumerate(target):
-                target[ind] = 0 if y_val < 5 else 1
-
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
-
-        if args.dataset in ('MNIST', 'MNIST-binary'):
-            if args.network == 'CNN':
-                data, target = Variable(data), Variable(target)
-            else:
-                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-        else:
-            data, target = Variable(data), Variable(target)
-
-        optimizer.zero_grad()
-        # var_model draw a sample of the network parameter and then applies the network with the sampled weights
-        output = var_model(data)
-        loss_error = F.nll_loss(output, target, reduction="mean")
-        loss_prior = var_model.prior_loss() / (beta*args.n)
-        loss = loss_error + loss_prior  # this is the ELBO
-        loss.backward()
-        optimizer.step()
-        if verbose:
-            if batch_idx % args.log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
-
-
-def test(epoch, test_loader, var_model, args, verbose=False):
-    var_model.eval()
     test_loss = 0
     correct = 0
     with torch.no_grad():
@@ -80,7 +44,7 @@ def test(epoch, test_loader, var_model, args, verbose=False):
             else:
                 data, target = Variable(data), Variable(target)
 
-            output = var_model(data)
+            output = model(data)
             test_loss += F.nll_loss(output, target).data.item()
             pred = output.data.max(1)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data).cpu().sum()
@@ -93,7 +57,22 @@ def test(epoch, test_loader, var_model, args, verbose=False):
             100. * correct / len(test_loader.dataset)))
 
 
-def rsamples_nll(r, train_loader, sample, args):
+def rsamples_nll(r, train_loader, G, model, args):
+
+    eps = randn((1, args.epsilon_dim), args.cuda)
+    w_sampled_from_G = G(eps)
+
+    new_state_dict = OrderedDict()
+    begin = 0
+    for (k, v) in model.state_dict().items():
+        end = begin + v.nelement()
+        idx = torch.arange(begin, end)
+        temp = w_sampled_from_G.index_select(1, idx)
+        new_state_dict.update({k: temp.view(v.shape)})
+        begin = end
+    model.load_state_dict(new_state_dict, strict=True)
+
+
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -112,15 +91,61 @@ def rsamples_nll(r, train_loader, sample, args):
         else:
             data, target = Variable(data), Variable(target)
 
-        sample.draw()
-        output = sample(data)
+        output = model(data)
         nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
+
     return nll.sum()
 
 
+# D(w) maps to real line
+class Discriminator(nn.Module):
 
-# estimate E_w^\beta[nL_n(w)] per beta per training-testing split
-def estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs, prior_parameters, beta):
+    def __init__(self, w_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(w_dim, 64),
+            nn.ELU(),
+            nn.Linear(64, 32),
+            nn.ELU(),
+            nn.Linear(32, 64),
+            nn.ELU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, w):
+
+        return self.net(w)
+
+
+# Given epsilon input, Generator outputs w
+class Generator(nn.Module):
+
+    def __init__(self, epsilon_dim, w_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(epsilon_dim, 64),
+            nn.ELU(),
+            nn.Linear(64, 32),
+            nn.ELU(),
+            nn.Linear(32, 64),
+            nn.ELU(),
+            nn.Linear(64, w_dim)
+        )
+
+    def forward(self, epsilon):
+        return self.net(epsilon)
+
+
+def randn(shape, device):
+
+    if device == False:
+        # return torch.randn(*shape).to(device)
+        return torch.randn(*shape)
+    else:
+        return torch.cuda.FloatTensor(*shape).normal_()
+
+def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs, prior_parameters,
+                                  beta):
 
     # retrieve model
     if args.network == 'CNN':
@@ -130,40 +155,96 @@ def estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, out
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
 
-    # variationalize model
-    var_model_initial = pyvarinf.Variationalize(model)
+    w_dim = count_parameters(model)
+    args.epsilon_dim = 10
 
-    var_model = copy.deepcopy(var_model_initial)
-    var_model.set_prior(args.prior, **prior_parameters)
-    if args.cuda:
-        var_model.cuda()
-    optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+    # instantiate generator and discriminator
+    # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
+    # D = Discriminator(w_dim).to(args.cuda)
+    G = Generator(args.epsilon_dim, w_dim)
+    D = Discriminator(w_dim)
 
-    # train var_model
-    for epoch in range(1, args.epochs + 1):
-        train(epoch, train_loader, var_model, optimizer, args, beta)
-        test(epoch, test_loader, var_model, args)
+    opt_primal = optim.Adam(
+        G.parameters(),
+        lr=args.lr_primal)
+    opt_dual = optim.Adam(
+        D.parameters(),
+        lr=args.lr_dual)
 
-    # form sample object from variational distribution r
-    sample = pyvarinf.Sample(var_model=var_model)
+
+    for epoch in range(args.epochs):
+
+        for batch_idx, (data, target) in enumerate(train_loader):
+
+            # opt dual for several SGD updates
+            for dual_it in range(10):
+                w_sampled_from_prior = randn((1, w_dim), args.cuda)
+                eps = randn((1, args.epsilon_dim), args.cuda)
+                w_sampled_from_G = G(eps)
+                loss_dual = -F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior))
+
+                loss_dual.backward()
+                opt_dual.step()
+                G.zero_grad()
+                D.zero_grad()
+
+            # opt primal for one SGD update
+            eps = randn((1, args.epsilon_dim), args.cuda)
+            w_sampled_from_G = G(eps)
+
+            if args.dataset == 'MNIST-binary':
+                for ind, y_val in enumerate(target):
+                    target[ind] = 0 if y_val < 5 else 1
+
+            if args.cuda:
+                data, target = data.cuda(), target.cuda()
+
+            if args.dataset in ('MNIST', 'MNIST-binary'):
+                if args.network == 'CNN':
+                    data, target = Variable(data), Variable(target)
+                else:
+                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+            else:
+                data, target = Variable(data), Variable(target)
+
+            new_state_dict = OrderedDict()
+            begin = 0
+            for (k,v) in model.state_dict().items():
+                end = begin + v.nelement()
+                idx = torch.arange(begin,end)
+                temp = w_sampled_from_G.index_select(1,idx)
+                new_state_dict.update({k : temp.view(v.shape)})
+                begin = end
+            model.load_state_dict(new_state_dict, strict=True)
+
+            output = model(data)
+            reconstr_err = beta * F.nll_loss(output, target, reduction="mean").detach().cpu().numpy()
+
+            loss_primal = reconstr_err + D(w_sampled_from_G)
+            loss_primal.backward(retain_graph=True)
+            opt_primal.step()
+            G.zero_grad()
+            D.zero_grad()
+
+        test(epoch, test_loader, model, args, verbose=False)
+
 
     # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
     my_list = range(args.R)
-    num_cores = 1 # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(rsamples_nll)(i,train_loader, sample, args) for i in my_list)
+    num_cores = 1  # multiprocessing.cpu_count()
+    nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(rsamples_nll)(i, train_loader, G, model, args) for i in my_list)
     temperednlls_perMC_perBeta = np.asarray(nlls)
 
     return temperednlls_perMC_perBeta.mean()
 
+
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
 # estimating Bayes RLCT based on variational inference
 def main():
-
-
     random.seed()
 
     # Training settings
-    parser = argparse.ArgumentParser(description='RLCT')
+    parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     # crucial parameters
     parser.add_argument('--dataset', type=str, default='MNIST',
                         help='dataset name from dataset_factory.py (default:MNIST)')
@@ -173,26 +254,30 @@ def main():
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--betasbegin',type=float, default=0.1,
+    parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
     parser.add_argument('--betasend', type=float, default=2,
                         help='where beta range should end')
-    parser.add_argument('--betalogscale',type=str, default='true',
+    parser.add_argument('--betalogscale', type=str, default='true',
                         help='true if beta should be on 1/log n scale')
-    parser.add_argument('--fit_lambda_over_average',type=str,default='true',
+    parser.add_argument('--fit_lambda_over_average', type=str, default='false',
                         help='true lambda should be fit after averaging tempered nlls')
     # as high as possible
     parser.add_argument('--bl', type=int, default=50,
                         help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--MCs',type=int, default=50,
+    parser.add_argument('--MCs', type=int, default=50,
                         help='number of times to split into train-test')
     parser.add_argument('--R', type=int, default=50,
                         help='number of MC draws from approximate posterior q (default:)')
     # not so crucial parameters can accept defaults
-    parser.add_argument('--wandb_on',action="store_true",
+    parser.add_argument('--wandb_on', action="store_true",
                         help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
+    parser.add_argument('--lr_primal', type=float, default=0.01, metavar='LR',
+                        help='primal learning rate (default: 0.01)')
+    parser.add_argument('--lr_dual', type=float, default=0.01, metavar='LR',
+                        help='dual learning rate (default: 0.01)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -258,36 +343,33 @@ def main():
     # d/2
     # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
     if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary','iris-binary','breastcancer-binary'):
-            don2 = (input_dim+1) // 2
+        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary'):
+            don2 = (input_dim + 1) // 2
         elif args.dataset == 'MNIST':
-            don2 = (input_dim+1)*9 // 2
+            don2 = (input_dim + 1) * 9 // 2
     else:
-        don2 = count_parameters(model)*(output_dim-1)/output_dim // 2
+        don2 = count_parameters(model) * (output_dim - 1) / output_dim // 2
 
     print('(number of parameters)/2: {}'.format(don2))
 
-
     # sweep betas
-    betas = np.linspace(args.betasbegin,args.betasend,args.bl)
+    betas = np.linspace(args.betasbegin, args.betasend, args.bl)
     if args.betalogscale == 'true':
-        betas = np.linspace(args.betasbegin/np.log(args.n),args.betasend/np.log(args.n),args.bl)
+        betas = np.linspace(args.betasbegin / np.log(args.n), args.betasend / np.log(args.n), args.bl)
 
     # Use E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
     if args.fit_lambda_over_average == 'true':
         temperedNLL_perBeta = np.empty(0)
         for beta in betas:
             temperedNLL_perMC_perBeta = np.empty(0)
-            for mc in range(0,args.MCs):
-
+            for mc in range(0, args.MCs):
                 # draw new training-testing split
                 train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-                temp = estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs,
-                                                   prior_parameters, beta)
-                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,temp)
-                print(mc)
-            print(beta)
-            temperedNLL_perBeta = np.append(temperedNLL_perBeta,temperedNLL_perMC_perBeta.mean())
+                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args,
+                                                          kwargs,
+                                                          prior_parameters, beta)
+                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
+            temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
 
         # GLS fit for lambda
         ols_model = OLS(temperedNLL_perBeta, add_constant(1 / betas)).fit()
@@ -310,20 +392,21 @@ def main():
         RLCT_estimates_GLS = np.empty(0)
         RLCT_estimates_OLS = np.empty(0)
 
-        for mc in range(0,args.MCs):
+        for mc in range(0, args.MCs):
 
             # draw new training-testing split
             train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
 
             temperedNLL_perMC_perBeta = np.empty(0)
             for beta in betas:
-                temp = estimate_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs,
-                                                   prior_parameters, beta)
-                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta,temp)
+                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args,
+                                                          kwargs,
+                                                          prior_parameters, beta)
+                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
             # GLS fit for lambda
             ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
-            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS,ols_model.params[1])
+            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols_model.params[1])
 
             ols_resid = ols_model.resid
             res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
@@ -335,7 +418,7 @@ def main():
             gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma)
             gls_results = gls_model.fit()
 
-            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS,gls_results.params[1])
+            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls_results.params[1])
             wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
 
         RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
@@ -351,6 +434,7 @@ def main():
     print(results)
     if args.wandb_on:
         wandb.log(results)
+
 
 if __name__ == "__main__":
     main()
