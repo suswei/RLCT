@@ -59,6 +59,7 @@ def test(epoch, test_loader, model, args, verbose=False):
 
 def rsamples_nll(r, train_loader, G, model, args):
 
+    G.eval()
     eps = randn((1, args.epsilon_dim), args.cuda)
     w_sampled_from_G = G(eps)
 
@@ -103,13 +104,11 @@ class Discriminator(nn.Module):
     def __init__(self, w_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(w_dim, 64),
+            nn.Linear(w_dim, 32),
             nn.ELU(),
-            nn.Linear(64, 32),
+            nn.Linear(32, 16),
             nn.ELU(),
-            nn.Linear(32, 64),
-            nn.ELU(),
-            nn.Linear(64, 1)
+            nn.Linear(16, 1)
         )
 
     def forward(self, w):
@@ -123,13 +122,13 @@ class Generator(nn.Module):
     def __init__(self, epsilon_dim, w_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(epsilon_dim, 64),
+            nn.Linear(epsilon_dim, 32),
             nn.ELU(),
-            nn.Linear(64, 32),
+            nn.Linear(32, 16),
             nn.ELU(),
-            nn.Linear(32, 64),
+            nn.Linear(16, 32),
             nn.ELU(),
-            nn.Linear(64, w_dim)
+            nn.Linear(32, w_dim)
         )
 
     def forward(self, epsilon):
@@ -156,7 +155,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
 
     w_dim = count_parameters(model)
-    args.epsilon_dim = 10
+    args.epsilon_dim = w_dim
 
     # instantiate generator and discriminator
     # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -171,25 +170,32 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         D.parameters(),
         lr=args.lr_dual)
 
+    G.train()
 
-    for epoch in range(args.epochs):
+    # pretrain discriminator D
+    for epoch in range(2):
+
+        w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
+        eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
+        w_sampled_from_G = G(eps)
+        loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
+
+        loss_dual.backward()
+        opt_dual.step()
+        G.zero_grad()
+        D.zero_grad()
+
+    # pretrain generator G
+    for epoch in range(2):
+
+        train_loss = 0
+        correct = 0
+        ELBO = 0
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            # opt dual for several SGD updates
-            for dual_it in range(10):
-                w_sampled_from_prior = randn((1, w_dim), args.cuda)
-                eps = randn((1, args.epsilon_dim), args.cuda)
-                w_sampled_from_G = G(eps)
-                loss_dual = -F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior))
-
-                loss_dual.backward()
-                opt_dual.step()
-                G.zero_grad()
-                D.zero_grad()
-
-            # opt primal for one SGD update
-            eps = randn((1, args.epsilon_dim), args.cuda)
+            # opt primal
+            eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
             w_sampled_from_G = G(eps)
 
             if args.dataset == 'MNIST-binary':
@@ -207,28 +213,129 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
             else:
                 data, target = Variable(data), Variable(target)
 
-            new_state_dict = OrderedDict()
-            begin = 0
-            for (k,v) in model.state_dict().items():
-                end = begin + v.nelement()
-                idx = torch.arange(begin,end)
-                temp = w_sampled_from_G.index_select(1,idx)
-                new_state_dict.update({k : temp.view(v.shape)})
-                begin = end
-            model.load_state_dict(new_state_dict, strict=True)
+            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} -log p(y_i|x_i, G(epsilon)) with one epsilon realisation
+            reconstr_err = 0
+            for i in range(args.batchsize):
+                new_state_dict = OrderedDict()
+                begin = 0
+                for (k,v) in model.state_dict().items():
+                    end = begin + v.nelement()
+                    idx = torch.arange(begin,end)
+                    temp = w_sampled_from_G[i,:].index_select(0,idx)
+                    new_state_dict.update({k : temp.view(v.shape)})
+                    begin = end
+                model.load_state_dict(new_state_dict, strict=True)
 
-            output = model(data)
-            reconstr_err = beta * F.nll_loss(output, target, reduction="mean").detach().cpu().numpy()
+                output = model(data)
+                reconstr_err += F.nll_loss(output, target, reduction="mean")
 
-            loss_primal = reconstr_err + D(w_sampled_from_G)
+            loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
 
-        test(epoch, test_loader, model, args, verbose=False)
+            ELBO += -loss_primal.data.item()
 
+            train_loss += F.nll_loss(output, target).data.item()
+            pred = output.data.max(1)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data).cpu().sum()
 
+        # train_loss = train_loss
+        # train_loss /= len(train_loader)  # loss function already averages over batch size
+        # print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        #         train_loss, correct, len(train_loader.dataset),
+        #         100. * correct / len(train_loader.dataset)))
+
+        ELBO /= len(train_loader)
+        print('\nTrain set: Average ELBO: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+                ELBO, correct, len(train_loader.dataset),
+                100. * correct / len(train_loader.dataset)))
+
+        # test(epoch, test_loader, model, args, verbose=False)
+
+    # train together
+    for epoch in range(args.epochs):
+
+        train_loss = 0
+        correct = 0
+        ELBO = 0
+
+        for batch_idx, (data, target) in enumerate(train_loader):
+
+            # opt dual more
+            for epoch in range(10):
+                w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
+                eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
+                w_sampled_from_G = G(eps)
+                loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
+
+                loss_dual.backward()
+                opt_dual.step()
+                G.zero_grad()
+                D.zero_grad()
+
+            # opt primal
+            eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
+            w_sampled_from_G = G(eps)
+
+            if args.dataset == 'MNIST-binary':
+                for ind, y_val in enumerate(target):
+                    target[ind] = 0 if y_val < 5 else 1
+
+            if args.cuda:
+                data, target = data.cuda(), target.cuda()
+
+            if args.dataset in ('MNIST', 'MNIST-binary'):
+                if args.network == 'CNN':
+                    data, target = Variable(data), Variable(target)
+                else:
+                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+            else:
+                data, target = Variable(data), Variable(target)
+
+            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} -log p(y_i|x_i, G(epsilon)) with one epsilon realisation
+            reconstr_err = 0
+            for i in range(args.batchsize):
+                new_state_dict = OrderedDict()
+                begin = 0
+                for (k,v) in model.state_dict().items():
+                    end = begin + v.nelement()
+                    idx = torch.arange(begin,end)
+                    temp = w_sampled_from_G[i,:].index_select(0,idx)
+                    new_state_dict.update({k : temp.view(v.shape)})
+                    begin = end
+                model.load_state_dict(new_state_dict, strict=True)
+
+                output = model(data)
+                reconstr_err += beta * F.nll_loss(output, target, reduction="mean")
+
+            loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
+            loss_primal.backward(retain_graph=True)
+            opt_primal.step()
+            G.zero_grad()
+            D.zero_grad()
+
+            ELBO += -loss_primal.data.item()
+
+            train_loss += F.nll_loss(output, target).data.item()
+            pred = output.data.max(1)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data).cpu().sum()
+
+        # train_loss = train_loss
+        # train_loss /= len(train_loader)  # loss function already averages over batch size
+        # print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        #         train_loss, correct, len(train_loader.dataset),
+        #         100. * correct / len(train_loader.dataset)))
+
+        ELBO /= len(train_loader)
+        print('\nTrain set: Average ELBO: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+                ELBO, correct, len(train_loader.dataset),
+                100. * correct / len(train_loader.dataset)))
+
+        # test(epoch, test_loader, model, args, verbose=False)
+
+    print('Finished one MC and one beta')
     # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
     my_list = range(args.R)
     num_cores = 1  # multiprocessing.cpu_count()
@@ -274,9 +381,9 @@ def main():
                         help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--lr_primal', type=float, default=0.01, metavar='LR',
+    parser.add_argument('--lr_primal', type=float, default=1e-4, metavar='LR',
                         help='primal learning rate (default: 0.01)')
-    parser.add_argument('--lr_dual', type=float, default=0.01, metavar='LR',
+    parser.add_argument('--lr_dual', type=float, default=1e-4, metavar='LR',
                         help='dual learning rate (default: 0.01)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
