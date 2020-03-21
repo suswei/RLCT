@@ -56,7 +56,8 @@ def test(epoch, test_loader, model, args, verbose=False):
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
 
-# approximate E^beta_w[nL_n(w)] where the expectation is approximated with drawing w^* once using generator G and finding nL_n(w^*)
+
+# approximate E^beta_w[nL_n(w)] where the expectation is approximated by drawing w^* once using generator G and finding nL_n(w^*)
 def rsamples_nll(r, train_loader, G, model, args):
 
     G.eval()
@@ -97,37 +98,39 @@ def rsamples_nll(r, train_loader, G, model, args):
 
     return nll.sum()
 
-
+# TODO: discriminator hidden layer dims should not be hardcoded
 # D(w) maps to real line
 class Discriminator(nn.Module):
 
     def __init__(self, w_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(w_dim, 32),
-            nn.ELU(),
-            nn.Linear(32, 16),
-            nn.ELU(),
-            nn.Linear(16, 1)
+            nn.Linear(w_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
         )
 
     def forward(self, w):
 
         return self.net(w)
 
-
+# TODO: discriminator hidden layer dims should not be hardcoded
 # Given epsilon input, Generator outputs w
 class Generator(nn.Module):
 
     def __init__(self, epsilon_dim, w_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(epsilon_dim, 32),
-            nn.ELU(),
+            nn.Linear(epsilon_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
             nn.Linear(32, 16),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(16, 32),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(32, w_dim)
         )
 
@@ -143,8 +146,8 @@ def randn(shape, device):
     else:
         return torch.cuda.FloatTensor(*shape).normal_()
 
-def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, kwargs, prior_parameters,
-                                  beta):
+
+def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, beta):
 
     # retrieve model
     if args.network == 'CNN':
@@ -155,7 +158,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
 
     w_dim = count_parameters(model)
-    args.epsilon_dim = w_dim
+    args.epsilon_dim = w_dim*2
 
     # instantiate generator and discriminator
     # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -195,7 +198,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            # opt dual more
+            # opt discriminator more than generator
             for epoch in range(50):
                 w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
                 eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
@@ -207,7 +210,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
                 G.zero_grad()
                 D.zero_grad()
 
-            # opt primal
+            # opt generator
             eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
             w_sampled_from_G = G(eps)
 
@@ -226,9 +229,9 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
             else:
                 data, target = Variable(data), Variable(target)
 
-            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} -log p(y_i|x_i, G(epsilon)) with one epsilon realisation
+            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} \sum_{i=1}^m -log p(y_i|x_i, G(epsilon)) with multiple epsilon realisation
             reconstr_err = 0
-            for i in range(args.batchsize):
+            for i in range(args.batchsize): # loop over rows of w_sampled_from_G corresponding to different epsilons
                 new_state_dict = OrderedDict()
                 begin = 0
                 for (k,v) in model.state_dict().items():
@@ -243,13 +246,11 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
                 reconstr_err += beta * F.nll_loss(output, target, reduction="mean")
 
             loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
-            # print("reconst:{} discriminator:{}".format(reconstr_err/args.batchsize,torch.mean(D(w_sampled_from_G))/(beta*args.n)))
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
 
-    print('Finished one MC and one beta')
     # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
     my_list = range(args.R)
     num_cores = 1  # multiprocessing.cpu_count()
@@ -365,13 +366,13 @@ def main():
     # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
     if args.network == 'logistic':
         if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary'):
-            don2 = (input_dim + 1) // 2
+            d_on_2 = (input_dim + 1) // 2
         elif args.dataset == 'MNIST':
-            don2 = (input_dim + 1) * 9 // 2
+            d_on_2 = (input_dim + 1) * 9 // 2
     else:
-        don2 = count_parameters(model) * (output_dim - 1) / output_dim // 2
+        d_on_2 = count_parameters(model) * (output_dim - 1) / output_dim // 2
 
-    print('(number of parameters)/2: {}'.format(don2))
+    print('(number of parameters)/2: {}'.format(d_on_2))
 
     # sweep betas
     betas = np.linspace(args.betasbegin, args.betasend, args.bl)
@@ -415,17 +416,18 @@ def main():
 
         for mc in range(0, args.MCs):
 
+            print('Starting MC {}'.format(mc))
             # draw new training-testing split
             train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
 
             temperedNLL_perMC_perBeta = np.empty(0)
             for beta in betas:
-                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args,
-                                                          kwargs,
-                                                          prior_parameters, beta)
+
+                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, beta)
                 temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
-            print(temperedNLL_perMC_perBeta)
+            plt.scatter(1/betas,temperedNLL_perMC_perBeta)
+            plt.show()
 
             # GLS fit for lambda
             ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
@@ -443,17 +445,19 @@ def main():
 
             RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls_results.params[1])
             print("RLCT_estimates_GLS: {}".format(RLCT_estimates_GLS))
-            wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
+            if args.wandb_on:
+                wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
+
+            print('Finishing MC {}'.format(mc))
 
         RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
         RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
 
-    # plt.scatter(1/betas,temperedNLL_perBeta)
 
     results = dict({
         "RLCT_estimate (OLS)": RLCT_estimate_OLS,
         "RLCT_estimate (GLS)": RLCT_estimate_GLS,
-        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - don2)})
+        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - d_on_2)})
 
     print(results)
     if args.wandb_on:
