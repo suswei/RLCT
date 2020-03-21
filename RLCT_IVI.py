@@ -56,7 +56,7 @@ def test(epoch, test_loader, model, args, verbose=False):
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
 
-
+# approximate E^beta_w[nL_n(w)] where the expectation is approximated with drawing w^* once using generator G and finding nL_n(w^*)
 def rsamples_nll(r, train_loader, G, model, args):
 
     G.eval()
@@ -172,8 +172,8 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
 
     G.train()
 
-    # pretrain discriminator D
-    for epoch in range(2):
+    # pretrain discriminator for some time before starting iterative process
+    for epoch in range(50):
 
         w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
         eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
@@ -185,74 +185,6 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         G.zero_grad()
         D.zero_grad()
 
-    # pretrain generator G
-    for epoch in range(2):
-
-        train_loss = 0
-        correct = 0
-        ELBO = 0
-
-        for batch_idx, (data, target) in enumerate(train_loader):
-
-            # opt primal
-            eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
-            w_sampled_from_G = G(eps)
-
-            if args.dataset == 'MNIST-binary':
-                for ind, y_val in enumerate(target):
-                    target[ind] = 0 if y_val < 5 else 1
-
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-
-            if args.dataset in ('MNIST', 'MNIST-binary'):
-                if args.network == 'CNN':
-                    data, target = Variable(data), Variable(target)
-                else:
-                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-            else:
-                data, target = Variable(data), Variable(target)
-
-            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} -log p(y_i|x_i, G(epsilon)) with one epsilon realisation
-            reconstr_err = 0
-            for i in range(args.batchsize):
-                new_state_dict = OrderedDict()
-                begin = 0
-                for (k,v) in model.state_dict().items():
-                    end = begin + v.nelement()
-                    idx = torch.arange(begin,end)
-                    temp = w_sampled_from_G[i,:].index_select(0,idx)
-                    new_state_dict.update({k : temp.view(v.shape)})
-                    begin = end
-                model.load_state_dict(new_state_dict, strict=True)
-
-                output = model(data)
-                reconstr_err += F.nll_loss(output, target, reduction="mean")
-
-            loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
-            loss_primal.backward(retain_graph=True)
-            opt_primal.step()
-            G.zero_grad()
-            D.zero_grad()
-
-            ELBO += -loss_primal.data.item()
-
-            train_loss += F.nll_loss(output, target).data.item()
-            pred = output.data.max(1)[1]  # get the index of the max log-probability
-            correct += pred.eq(target.data).cpu().sum()
-
-        # train_loss = train_loss
-        # train_loss /= len(train_loader)  # loss function already averages over batch size
-        # print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        #         train_loss, correct, len(train_loader.dataset),
-        #         100. * correct / len(train_loader.dataset)))
-
-        ELBO /= len(train_loader)
-        print('\nTrain set: Average ELBO: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-                ELBO, correct, len(train_loader.dataset),
-                100. * correct / len(train_loader.dataset)))
-
-        # test(epoch, test_loader, model, args, verbose=False)
 
     # train together
     for epoch in range(args.epochs):
@@ -264,7 +196,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         for batch_idx, (data, target) in enumerate(train_loader):
 
             # opt dual more
-            for epoch in range(10):
+            for epoch in range(50):
                 w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
                 eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
@@ -311,29 +243,11 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
                 reconstr_err += beta * F.nll_loss(output, target, reduction="mean")
 
             loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
+            # print("reconst:{} discriminator:{}".format(reconstr_err/args.batchsize,torch.mean(D(w_sampled_from_G))/(beta*args.n)))
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
-
-            ELBO += -loss_primal.data.item()
-
-            train_loss += F.nll_loss(output, target).data.item()
-            pred = output.data.max(1)[1]  # get the index of the max log-probability
-            correct += pred.eq(target.data).cpu().sum()
-
-        # train_loss = train_loss
-        # train_loss /= len(train_loader)  # loss function already averages over batch size
-        # print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        #         train_loss, correct, len(train_loader.dataset),
-        #         100. * correct / len(train_loader.dataset)))
-
-        ELBO /= len(train_loader)
-        print('\nTrain set: Average ELBO: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-                ELBO, correct, len(train_loader.dataset),
-                100. * correct / len(train_loader.dataset)))
-
-        # test(epoch, test_loader, model, args, verbose=False)
 
     print('Finished one MC and one beta')
     # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
@@ -511,6 +425,8 @@ def main():
                                                           prior_parameters, beta)
                 temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
+            print(temperedNLL_perMC_perBeta)
+
             # GLS fit for lambda
             ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
             RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols_model.params[1])
@@ -526,6 +442,7 @@ def main():
             gls_results = gls_model.fit()
 
             RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls_results.params[1])
+            print("RLCT_estimates_GLS: {}".format(RLCT_estimates_GLS))
             wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
 
         RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
