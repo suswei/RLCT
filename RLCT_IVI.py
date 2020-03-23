@@ -72,6 +72,7 @@ def rsamples_nll(r, train_loader, G, model, args):
         temp = w_sampled_from_G.index_select(1, idx)
         new_state_dict.update({k: temp.view(v.shape)})
         begin = end
+    # TODO: can't backprop through load_state_dict, see https://discuss.pytorch.org/t/loading-a-state-dict-seems-to-erase-grad/56676
     model.load_state_dict(new_state_dict, strict=True)
 
 
@@ -229,7 +230,7 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
             else:
                 data, target = Variable(data), Variable(target)
 
-            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} \sum_{i=1}^m -log p(y_i|x_i, G(epsilon)) with multiple epsilon realisation
+            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with multiple epsilon realisation
             reconstr_err = 0
             for i in range(args.batchsize): # loop over rows of w_sampled_from_G corresponding to different epsilons
                 new_state_dict = OrderedDict()
@@ -240,10 +241,11 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
                     temp = w_sampled_from_G[i,:].index_select(0,idx)
                     new_state_dict.update({k : temp.view(v.shape)})
                     begin = end
+                # TODO: can't backprop through load_state_dict
                 model.load_state_dict(new_state_dict, strict=True)
 
                 output = model(data)
-                reconstr_err += beta * F.nll_loss(output, target, reduction="mean")
+                reconstr_err += F.nll_loss(output, target, reduction="mean")
 
             loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
             loss_primal.backward(retain_graph=True)
