@@ -12,7 +12,6 @@ from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
 from matplotlib import pyplot as plt
-from collections import OrderedDict
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -22,6 +21,50 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def load_minibatch(args,data,target):
+
+    if args.dataset == 'MNIST-binary':
+        for ind, y_val in enumerate(target):
+            target[ind] = 0 if y_val < 5 else 1
+
+    if args.cuda:
+        data, target = data.cuda(), target.cuda()
+
+    if args.dataset in ('MNIST', 'MNIST-binary'):
+        if args.network == 'CNN':
+            data, target = Variable(data), Variable(target)
+        else:
+            data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
+    else:
+        data, target = Variable(data), Variable(target)
+
+    return data, target
+
+
+def retrieve_model(args,input_dim,output_dim):
+
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
+
+    # TODO: how to count parameters automatically?
+    if args.network == 'logistic':
+        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary'):
+            w_dim = (input_dim + 1)
+        elif args.dataset == 'MNIST':
+            w_dim = (input_dim + 1) * 9 / 2
+    else:
+        w_dim = count_parameters(model) * (output_dim - 1) / output_dim
+
+    return model, w_dim
+
+
 def test(epoch, test_loader, model, args, verbose=False):
 
     test_loss = 0
@@ -29,21 +72,7 @@ def test(epoch, test_loader, model, args, verbose=False):
     with torch.no_grad():
         for data, target in test_loader:
 
-            if args.dataset == 'MNIST-binary':
-                for ind, y_val in enumerate(target):
-                    target[ind] = 0 if y_val < 5 else 1
-
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-
-            if args.dataset in ('MNIST', 'MNIST-binary'):
-                if args.network == 'CNN':
-                    data, target = Variable(data), Variable(target)
-                else:
-                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-            else:
-                data, target = Variable(data), Variable(target)
-
+            data,target = load_minibatch(args, data, target)
             output = model(data)
             test_loss += F.nll_loss(output, target).data.item()
             pred = output.data.max(1)[1]  # get the index of the max log-probability
@@ -57,39 +86,29 @@ def test(epoch, test_loader, model, args, verbose=False):
             100. * correct / len(test_loader.dataset)))
 
 
-# approximate E^beta_w[nL_n(w)] where the expectation is approximated by drawing w^* once using generator G and finding nL_n(w^*)
-def rsamples_nll(r, train_loader, G, model, args):
+# Draw w^* from generator G
+# Evaluate nL_n(w^*) on train_loader  
+def approxinf_nll(r, train_loader, G, model, args):
 
     G.eval()
-    eps = randn((1, args.epsilon_dim), args.cuda)
-    w_sampled_from_G = G(eps)
-    w_dim = w_sampled_from_G.shape[1]
+    with torch.no_grad():
+        eps = randn((1, args.epsilon_dim), args.cuda)
+        w_sampled_from_G = G(eps)
+        w_dim = w_sampled_from_G.shape[1]
 
-    A = w_sampled_from_G[1, 0:(w_dim - 1)]
-    b = w_sampled_from_G[1, w_dim - 1]
+        A = w_sampled_from_G[0, 0:(w_dim - 1)]
+        b = w_sampled_from_G[0, w_dim - 1]
 
+        nll = np.empty(0)
+        for batch_idx, (data, target) in enumerate(train_loader):
 
-    nll = np.empty(0)
-    for batch_idx, (data, target) in enumerate(train_loader):
-
-        if args.dataset == 'MNIST-binary':
-            for ind, y_val in enumerate(target):
-                target[ind] = 0 if y_val < 5 else 1
-
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
-
-        if args.dataset in ('MNIST', 'MNIST-binary'):
-            if args.network == 'CNN':
-                data, target = Variable(data), Variable(target)
-            else:
-                data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-        else:
-            data, target = Variable(data), Variable(target)
-
-        output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
-        nll_new = F.nll_loss(torch.cat((output, torch.zeros(args.batchsize, 1)), 1), target, reduction="mean")
-        nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
+            data, target = load_minibatch(args, data, target)
+            output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
+            output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
+            logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
+            # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
+            nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
+            nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
     return nll.sum()
 
@@ -142,21 +161,9 @@ def randn(shape, device):
         return torch.cuda.FloatTensor(*shape).normal_()
 
 
-def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, beta):
+def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta):
 
-    # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-
-
-    # w_dim = count_parameters(model)
-    w_dim = input_dim + 1
+    model, w_dim = retrieve_model(args,input_dim,output_dim)
     args.epsilon_dim = w_dim
 
     # instantiate generator and discriminator
@@ -174,8 +181,8 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
 
     G.train()
 
-    # pretrain discriminator for some time before starting iterative process
-    for epoch in range(50):
+    # pretrain discriminator
+    for epoch in range(5):
 
         w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
         eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
@@ -187,8 +194,8 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         G.zero_grad()
         D.zero_grad()
 
-
-    # train together
+    epsilon_mc = 5
+    # train discriminator and generator together
     for epoch in range(args.epochs):
 
         train_loss = 0
@@ -198,57 +205,61 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
         for batch_idx, (data, target) in enumerate(train_loader):
 
             # opt discriminator more than generator
-            for epoch in range(50):
-                w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
-                eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
+            for discriminator_epoch in range(5):
+
+                w_sampled_from_prior = randn((epsilon_mc, w_dim), args.cuda)
+                eps = randn((epsilon_mc, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
                 loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
-
                 loss_dual.backward()
                 opt_dual.step()
                 G.zero_grad()
                 D.zero_grad()
 
+            data, target = load_minibatch(args, data, target)
+
             # opt generator
-            eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
+            eps = randn((epsilon_mc, args.epsilon_dim), args.cuda)
             w_sampled_from_G = G(eps)
 
-            if args.dataset == 'MNIST-binary':
-                for ind, y_val in enumerate(target):
-                    target[ind] = 0 if y_val < 5 else 1
-
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-
-            if args.dataset in ('MNIST', 'MNIST-binary'):
-                if args.network == 'CNN':
-                    data, target = Variable(data), Variable(target)
-                else:
-                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-            else:
-                data, target = Variable(data), Variable(target)
-
-            # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with multiple epsilon realisation
+            # for fixed minibatch of size b, reconstr_err approximates
+            # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with epsilon_mc realisations
             reconstr_err = 0
-            for i in range(args.batchsize): # loop over rows of w_sampled_from_G corresponding to different epsilons
+            for i in range(epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
                 A = w_sampled_from_G[i, 0:(w_dim-1)]
                 b = w_sampled_from_G[i, w_dim-1]
                 output = torch.mm(data, A.reshape(w_dim-1, 1))+b
-                reconstr_err += F.nll_loss(torch.cat((output,torch.zeros(args.batchsize,1)),1), target, reduction="mean")
+                output_cat_zero = torch.cat((output,torch.zeros(data.shape[0],1)),1)
+                logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
+                # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
+                reconstr_err += F.nll_loss(logsoftmax_output, target, reduction="mean")
 
-            loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
+            loss_primal = reconstr_err/epsilon_mc + torch.mean(D(w_sampled_from_G))/(beta*args.n)
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
 
-    # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
+            with torch.no_grad():
+                pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
+                correct += pred.eq(target.data).cpu().sum()
+                if batch_idx % args.log_interval == 0:
+                    print(
+                        'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
+                            epoch, batch_idx * len(data), len(train_loader.dataset),
+                                   100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
+
+        print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(
+            correct, len(train_loader.dataset),
+            100. * correct / len(train_loader.dataset)))
+
     my_list = range(args.R)
     num_cores = 1  # multiprocessing.cpu_count()
-    nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(rsamples_nll)(i, train_loader, G, model, args) for i in my_list)
-    temperednlls_perMC_perBeta = np.asarray(nlls)
+    # return array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
+    approxinf_nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(approxinf_nll)(i, train_loader, G, model, args) for i in my_list)
 
-    return temperednlls_perMC_perBeta.mean()
+    # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
+    return np.asarray(approxinf_nlls).mean()
 
 
 # TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
@@ -259,29 +270,29 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     # crucial parameters
-    parser.add_argument('--dataset', type=str, default='MNIST',
-                        help='dataset name from dataset_factory.py (default:MNIST)')
+    parser.add_argument('--dataset', type=str, default='breastcancer-binary',
+                        help='dataset name from dataset_factory.py (default: breastcancer-binary)')
     parser.add_argument('--network', type=str, default='logistic',
-                        help='name of network in models.py')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--batchsize', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
+                        help='name of network in models.py (default: logistic)')
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+                        help='number of epochs to train (default: 100)')
+    parser.add_argument('--batchsize', type=int, default=10, metavar='N',
+                        help='input batch size for training (default: 10)')
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
     parser.add_argument('--betasend', type=float, default=2,
                         help='where beta range should end')
     parser.add_argument('--betalogscale', type=str, default='true',
-                        help='true if beta should be on 1/log n scale')
+                        help='true if beta should be on 1/log n scale (default: true)')
     parser.add_argument('--fit_lambda_over_average', type=str, default='false',
-                        help='true lambda should be fit after averaging tempered nlls')
+                        help='true lambda should be fit after averaging tempered nlls (default: false)')
     # as high as possible
     parser.add_argument('--bl', type=int, default=50,
                         help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--MCs', type=int, default=50,
+    parser.add_argument('--MCs', type=int, default=100,
                         help='number of times to split into train-test')
     parser.add_argument('--R', type=int, default=50,
-                        help='number of MC draws from approximate posterior q (default:)')
+                        help='number of MC draws from approximate posterior (default:50)')
     # not so crucial parameters can accept defaults
     parser.add_argument('--wandb_on', action="store_true",
                         help='use wandb to log experiment')
@@ -345,32 +356,14 @@ def main():
     args.n = len(train_loader.dataset)
 
     # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
+    model, w_dim = retrieve_model(args, input_dim, output_dim)
     print(model)
-
-    # d/2
-    # TODO: doesn't look like I'm counting the number of parameters correctly. For binary lgoistic regression on MNIST-binary, the number of parameters should be 784+1, so d/2 is 785/2
-    if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary'):
-            d_on_2 = (input_dim + 1) // 2
-        elif args.dataset == 'MNIST':
-            d_on_2 = (input_dim + 1) * 9 // 2
-    else:
-        d_on_2 = count_parameters(model) * (output_dim - 1) / output_dim // 2
-
-    print('(number of parameters)/2: {}'.format(d_on_2))
+    print('(number of parameters)/2: {}'.format(w_dim/2))
 
     # sweep betas
     betas = np.linspace(args.betasbegin, args.betasend, args.bl)
     if args.betalogscale == 'true':
-        betas = np.linspace(args.betasbegin / np.log(args.n), args.betasend / np.log(args.n), args.bl)
+        betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.bl)
 
     # Use E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
     if args.fit_lambda_over_average == 'true':
@@ -380,9 +373,14 @@ def main():
             for mc in range(0, args.MCs):
                 # draw new training-testing split
                 train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args,
-                                                          kwargs,
-                                                          prior_parameters, beta)
+                temp = approxinf_expected_betanll(train_loader,
+                                                  test_loader,
+                                                  input_dim,
+                                                  output_dim,
+                                                  args,
+                                                  kwargs,
+                                                  prior_parameters,
+                                                  beta)
                 temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
             temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
 
@@ -416,7 +414,7 @@ def main():
             temperedNLL_perMC_perBeta = np.empty(0)
             for beta in betas:
 
-                temp = IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_dim, args, beta)
+                temp = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta)
                 temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
             plt.scatter(1/betas,temperedNLL_perMC_perBeta)
@@ -425,6 +423,7 @@ def main():
             # GLS fit for lambda
             ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
             RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols_model.params[1])
+            print("RLCT_estimates OLS: {}".format(RLCT_estimates_OLS))
 
             ols_resid = ols_model.resid
             res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
@@ -437,8 +436,9 @@ def main():
             gls_results = gls_model.fit()
 
             RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls_results.params[1])
-            print("RLCT_estimates_GLS: {}".format(RLCT_estimates_GLS))
+            print("RLCT_estimates GLS: {}".format(RLCT_estimates_GLS))
             if args.wandb_on:
+                wandb.run.summary["RLCT_estimate_OLS"] = RLCT_estimates_OLS
                 wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
 
             print('Finishing MC {}'.format(mc))
