@@ -63,17 +63,10 @@ def rsamples_nll(r, train_loader, G, model, args):
     G.eval()
     eps = randn((1, args.epsilon_dim), args.cuda)
     w_sampled_from_G = G(eps)
+    w_dim = w_sampled_from_G.shape[1]
 
-    new_state_dict = OrderedDict()
-    begin = 0
-    for (k, v) in model.state_dict().items():
-        end = begin + v.nelement()
-        idx = torch.arange(begin, end)
-        temp = w_sampled_from_G.index_select(1, idx)
-        new_state_dict.update({k: temp.view(v.shape)})
-        begin = end
-    # TODO: can't backprop through load_state_dict, see https://discuss.pytorch.org/t/loading-a-state-dict-seems-to-erase-grad/56676
-    model.load_state_dict(new_state_dict, strict=True)
+    A = w_sampled_from_G[1, 0:(w_dim - 1)]
+    b = w_sampled_from_G[1, w_dim - 1]
 
 
     nll = np.empty(0)
@@ -94,8 +87,9 @@ def rsamples_nll(r, train_loader, G, model, args):
         else:
             data, target = Variable(data), Variable(target)
 
-        output = model(data)
-        nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
+        output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
+        nll_new = F.nll_loss(torch.cat((output, torch.zeros(args.batchsize, 1)), 1), target, reduction="mean")
+        nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
     return nll.sum()
 
@@ -153,13 +147,17 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'logistic':
         model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
 
-    w_dim = count_parameters(model)
-    args.epsilon_dim = w_dim*2
+
+    # w_dim = count_parameters(model)
+    w_dim = input_dim + 1
+    args.epsilon_dim = w_dim
 
     # instantiate generator and discriminator
     # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -233,19 +231,10 @@ def IVI_temperedNLL_perMC_perBeta(train_loader, test_loader, input_dim, output_d
             # for fixed minibatch reconstr_err approximates E_\epsilon frac{1}{m} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with multiple epsilon realisation
             reconstr_err = 0
             for i in range(args.batchsize): # loop over rows of w_sampled_from_G corresponding to different epsilons
-                new_state_dict = OrderedDict()
-                begin = 0
-                for (k,v) in model.state_dict().items():
-                    end = begin + v.nelement()
-                    idx = torch.arange(begin,end)
-                    temp = w_sampled_from_G[i,:].index_select(0,idx)
-                    new_state_dict.update({k : temp.view(v.shape)})
-                    begin = end
-                # TODO: can't backprop through load_state_dict
-                model.load_state_dict(new_state_dict, strict=True)
-
-                output = model(data)
-                reconstr_err += F.nll_loss(output, target, reduction="mean")
+                A = w_sampled_from_G[i, 0:(w_dim-1)]
+                b = w_sampled_from_G[i, w_dim-1]
+                output = torch.mm(data, A.reshape(w_dim-1, 1))+b
+                reconstr_err += F.nll_loss(torch.cat((output,torch.zeros(args.batchsize,1)),1), target, reduction="mean")
 
             loss_primal = reconstr_err/args.batchsize + torch.mean(D(w_sampled_from_G))/(beta*args.n)
             loss_primal.backward(retain_graph=True)
@@ -272,8 +261,8 @@ def main():
     # crucial parameters
     parser.add_argument('--dataset', type=str, default='MNIST',
                         help='dataset name from dataset_factory.py (default:MNIST)')
-    parser.add_argument('--network', type=str, default='CNN',
-                        help='name of network in models.py (default:CNN)')
+    parser.add_argument('--network', type=str, default='logistic',
+                        help='name of network in models.py')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--batchsize', type=int, default=64, metavar='N',
@@ -358,10 +347,12 @@ def main():
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'logistic':
         model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
     print(model)
 
     # d/2
