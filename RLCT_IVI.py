@@ -86,8 +86,7 @@ def test(epoch, test_loader, model, args, verbose=False):
             100. * correct / len(test_loader.dataset)))
 
 
-# Draw w^* from generator G
-# Evaluate nL_n(w^*) on train_loader  
+# Draw w^* from generator G and evaluate nL_n(w^*) on train_loader
 def approxinf_nll(r, train_loader, G, model, args):
 
     G.eval()
@@ -112,40 +111,34 @@ def approxinf_nll(r, train_loader, G, model, args):
 
     return nll.sum()
 
-# TODO: discriminator hidden layer dims should not be hardcoded
-# D(w) maps to real line
+
 class Discriminator(nn.Module):
 
-    def __init__(self, w_dim):
+    def __init__(self, w_dim,n_hidden_D):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(w_dim, 64),
+            nn.Linear(w_dim, n_hidden_D),
             nn.ReLU(),
-            nn.Linear(64, 128),
+            nn.Linear(n_hidden_D, n_hidden_D),
             nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(n_hidden_D, 1)
         )
 
     def forward(self, w):
 
         return self.net(w)
 
-# TODO: discriminator hidden layer dims should not be hardcoded
-# Given epsilon input, Generator outputs w
+
 class Generator(nn.Module):
 
-    def __init__(self, epsilon_dim, w_dim):
+    def __init__(self, epsilon_dim, w_dim,n_hidden_G):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(epsilon_dim, 64),
+            nn.Linear(epsilon_dim, n_hidden_G),
             nn.ReLU(),
-            nn.Linear(64, 32),
+            nn.Linear(n_hidden_G, n_hidden_G),
             nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 32),
-            nn.ReLU(),
-            nn.Linear(32, w_dim)
+            nn.Linear(n_hidden_G, w_dim)
         )
 
     def forward(self, epsilon):
@@ -161,16 +154,30 @@ def randn(shape, device):
         return torch.cuda.FloatTensor(*shape).normal_()
 
 
+def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
+    ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
+
+    ols_resid = ols_model.resid
+    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
+    rho = res_fit.params
+
+    order = toeplitz(np.arange(betas.size()))
+    sigma = rho ** order
+
+    gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
+
+    return ols_model.params[1], gls_model.params[1]
+
+
+# Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
 def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta):
 
     model, w_dim = retrieve_model(args,input_dim,output_dim)
     args.epsilon_dim = w_dim
 
     # instantiate generator and discriminator
-    # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
-    # D = Discriminator(w_dim).to(args.cuda)
-    G = Generator(args.epsilon_dim, w_dim)
-    D = Discriminator(w_dim)
+    G = Generator(args.epsilon_dim, w_dim, args.n_hidden_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
+    D = Discriminator(w_dim, args.n_hidden_D)  # D = Discriminator(w_dim).to(args.cuda)
 
     opt_primal = optim.Adam(
         G.parameters(),
@@ -178,8 +185,6 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
     opt_dual = optim.Adam(
         D.parameters(),
         lr=args.lr_dual)
-
-    G.train()
 
     # pretrain discriminator
     for epoch in range(5):
@@ -194,21 +199,18 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
         G.zero_grad()
         D.zero_grad()
 
-    epsilon_mc = 5
     # train discriminator and generator together
     for epoch in range(args.epochs):
 
-        train_loss = 0
         correct = 0
-        ELBO = 0
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
             # opt discriminator more than generator
             for discriminator_epoch in range(5):
 
-                w_sampled_from_prior = randn((epsilon_mc, w_dim), args.cuda)
-                eps = randn((epsilon_mc, args.epsilon_dim), args.cuda)
+                w_sampled_from_prior = randn((args.epsilon_mc, w_dim), args.cuda)
+                eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
                 loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
                 loss_dual.backward()
@@ -219,35 +221,34 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
             data, target = load_minibatch(args, data, target)
 
             # opt generator
-            eps = randn((epsilon_mc, args.epsilon_dim), args.cuda)
+            eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
             w_sampled_from_G = G(eps)
 
             # for fixed minibatch of size b, reconstr_err approximates
-            # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with epsilon_mc realisations
+            # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with args.epsilon_mc realisations
             reconstr_err = 0
-            for i in range(epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
+            for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
                 A = w_sampled_from_G[i, 0:(w_dim-1)]
                 b = w_sampled_from_G[i, w_dim-1]
                 output = torch.mm(data, A.reshape(w_dim-1, 1))+b
                 output_cat_zero = torch.cat((output,torch.zeros(data.shape[0],1)),1)
                 logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
-                # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
+                # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
                 reconstr_err += F.nll_loss(logsoftmax_output, target, reduction="mean")
 
-            loss_primal = reconstr_err/epsilon_mc + torch.mean(D(w_sampled_from_G))/(beta*args.n)
+            loss_primal = reconstr_err/args.epsilon_mc + torch.mean(D(w_sampled_from_G))/(beta*args.n)
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
 
-            with torch.no_grad():
-                pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
-                correct += pred.eq(target.data).cpu().sum()
-                if batch_idx % args.log_interval == 0:
-                    print(
-                        'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
-                            epoch, batch_idx * len(data), len(train_loader.dataset),
-                                   100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
+            pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data).cpu().sum()
+            if batch_idx % args.log_interval == 0:
+                print(
+                    'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
+                        epoch, batch_idx * len(data), len(train_loader.dataset),
+                               100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
         print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(
             correct, len(train_loader.dataset),
@@ -258,12 +259,102 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
     # return array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
     approxinf_nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(approxinf_nll)(i, train_loader, G, model, args) for i in my_list)
 
-    # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
-    return np.asarray(approxinf_nlls).mean()
+    return np.asarray(approxinf_nlls).mean(), np.asarray(approxinf_nlls)
 
 
-# TODO: this is only for categorical prediction at the moment, relies on nll_loss in pytorch. Should generalise eventually
-# estimating Bayes RLCT based on variational inference
+def lambda_cor3(betas, args, kwargs):
+
+    lambdas_mc = np.empty(0)
+
+    for mc in range(0, args.MCs):
+
+        # draw new training-testing split
+        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+
+        lambdas_beta1 = np.empty(0)
+        for beta in betas:
+            beta1 = beta
+            beta2 = beta+0.05/np.log(args.n)
+            _, nlls = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta1)
+
+            lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
+            lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
+            print('lambdas_beta1:{}'.format(lambdas_beta1))
+
+        lambdas_mc = np.append(lambdas_mc, lambdas_beta1.mean())
+        print('lambdas_mc:{}'.format(lambdas_mc))
+
+    return lambdas_mc.mean()
+
+
+# Thm 4 of Watanabe's WBIC: E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
+def lambda_thm4(betas, args, kwargs):
+
+    RLCT_estimates_GLS = np.empty(0)
+    RLCT_estimates_OLS = np.empty(0)
+
+    for mc in range(0, args.MCs):
+
+        print('Starting MC {}'.format(mc))
+        # draw new training-testing split
+        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+
+        temperedNLL_perMC_perBeta = np.empty(0)
+        for beta in betas:
+            temp, _ = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta)
+            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
+
+        plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
+        plt.show()
+
+        # least squares fit for lambda
+        ols, gls = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
+        RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
+        RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
+
+        print("RLCT_estimates GLS: {}".format(RLCT_estimates_GLS))
+        if args.wandb_on:
+            import wandb
+            wandb.run.summary["RLCT_estimate_OLS"] = RLCT_estimates_OLS
+            wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
+
+        print('Finishing MC {}'.format(mc))
+
+    RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
+    RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
+
+    return RLCT_estimate_OLS, RLCT_estimate_GLS
+
+
+# apply E_{D_n} to Theorem 4 of Watanabe's WBIC: E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
+def lambda_thm4average(betas, args, kwargs):
+
+    temperedNLL_perBeta = np.empty(0)
+
+    for beta in betas:
+
+        temperedNLL_perMC_perBeta = np.empty(0)
+
+        for mc in range(0, args.MCs):
+
+            # draw new training-testing split
+            train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+            temp, _ = approxinf_expected_betanll(train_loader,
+                                              test_loader,
+                                              input_dim,
+                                              output_dim,
+                                              args,
+                                              kwargs,
+                                              beta)
+            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
+
+        temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
+
+    RLCT_estimate_OLS, RLCT_estimate_GLS = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
+
+    return RLCT_estimate_OLS, RLCT_estimate_GLS
+
+
 def main():
     random.seed()
 
@@ -271,21 +362,30 @@ def main():
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     # crucial parameters
     parser.add_argument('--dataset', type=str, default='breastcancer-binary',
-                        help='dataset name from dataset_factory.py (default: breastcancer-binary)')
+                        help='dataset name from dataset_factory.py (default: breastcancer-binary)',
+                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST'])
     parser.add_argument('--network', type=str, default='logistic',
-                        help='name of network in models.py (default: logistic)')
+                        help='name of network in models.py (default: logistic)',
+                        choices=['FFrelu','CNN','logistic'])
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
     parser.add_argument('--batchsize', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 10)')
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=2,
+    parser.add_argument('--betasend', type=float, default=0.2,
                         help='where beta range should end')
     parser.add_argument('--betalogscale', type=str, default='true',
-                        help='true if beta should be on 1/log n scale (default: true)')
-    parser.add_argument('--fit_lambda_over_average', type=str, default='false',
-                        help='true lambda should be fit after averaging tempered nlls (default: false)')
+                        help='true if beta should be on 1/log n scale (default: true)',
+                        choices=['true','false'])
+    parser.add_argument('--n_hidden_D', type=int, default=256,
+                        help='number of hidden units in discriminator D')
+    parser.add_argument('--n_hidden_G', type=int, default=256,
+                        help='number of hidden units in generator G')
+    parser.add_argument('--epsilon_mc', type=int, default=10,
+                        help='number of draws for estimating E_\epsilon')
+    parser.add_argument('--lambda_asymptotic', type=str, default='cor3',
+                        choices=['thm4', 'thm4_average', 'cor3'])
     # as high as possible
     parser.add_argument('--bl', type=int, default=50,
                         help='how many betas should be swept between betasbegin and betasend')
@@ -365,92 +465,22 @@ def main():
     if args.betalogscale == 'true':
         betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.bl)
 
-    # Use E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
-    if args.fit_lambda_over_average == 'true':
-        temperedNLL_perBeta = np.empty(0)
-        for beta in betas:
-            temperedNLL_perMC_perBeta = np.empty(0)
-            for mc in range(0, args.MCs):
-                # draw new training-testing split
-                train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-                temp = approxinf_expected_betanll(train_loader,
-                                                  test_loader,
-                                                  input_dim,
-                                                  output_dim,
-                                                  args,
-                                                  kwargs,
-                                                  prior_parameters,
-                                                  beta)
-                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
-            temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
+    if args.lambda_asymptotic == 'thm4':
 
-        # GLS fit for lambda
-        ols_model = OLS(temperedNLL_perBeta, add_constant(1 / betas)).fit()
-        RLCT_estimate_OLS = ols_model.params[1]
+        RLCT_GLS, RLCT_OLS = lambda_thm4(betas, args, kwargs)
 
-        ols_resid = ols_model.resid
-        res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
-        rho = res_fit.params
+    elif args.lambda_asymptotic == 'thm4_average':
 
-        order = toeplitz(np.arange(args.bl))
-        sigma = rho ** order
+        RLCT_GLS, RLCT_OLS = lambda_thm4average(betas, args, kwargs)
 
-        gls_model = GLS(temperedNLL_perBeta, add_constant(1 / betas), sigma=sigma)
-        gls_results = gls_model.fit()
-        RLCT_estimate_GLS = gls_results.params[1]
+    elif args.lambda_asymptotic == 'cor3':
 
-    # Use E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
-    else:
-
-        RLCT_estimates_GLS = np.empty(0)
-        RLCT_estimates_OLS = np.empty(0)
-
-        for mc in range(0, args.MCs):
-
-            print('Starting MC {}'.format(mc))
-            # draw new training-testing split
-            train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-
-            temperedNLL_perMC_perBeta = np.empty(0)
-            for beta in betas:
-
-                temp = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta)
-                temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
-
-            plt.scatter(1/betas,temperedNLL_perMC_perBeta)
-            plt.show()
-
-            # GLS fit for lambda
-            ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
-            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols_model.params[1])
-            print("RLCT_estimates OLS: {}".format(RLCT_estimates_OLS))
-
-            ols_resid = ols_model.resid
-            res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
-            rho = res_fit.params
-
-            order = toeplitz(np.arange(args.bl))
-            sigma = rho ** order
-
-            gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma)
-            gls_results = gls_model.fit()
-
-            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls_results.params[1])
-            print("RLCT_estimates GLS: {}".format(RLCT_estimates_GLS))
-            if args.wandb_on:
-                wandb.run.summary["RLCT_estimate_OLS"] = RLCT_estimates_OLS
-                wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
-
-            print('Finishing MC {}'.format(mc))
-
-        RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
-        RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
-
+        RLCT_GLS, RLCT_OLS = lambda_cor3(betas, args, kwargs)
 
     results = dict({
-        "RLCT_estimate (OLS)": RLCT_estimate_OLS,
-        "RLCT_estimate (GLS)": RLCT_estimate_GLS,
-        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - d_on_2)})
+        "RLCT_estimate (OLS)": RLCT_OLS,
+        "RLCT_estimate (GLS)": RLCT_GLS,
+        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim/2)})
 
     print(results)
     if args.wandb_on:
