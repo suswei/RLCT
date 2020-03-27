@@ -74,18 +74,17 @@ def get_dataset_by_id(args,kwargs):
 
     elif args.dataset == 'lr_synthetic':
 
-        n = 5000
         output_dim = 2
         input_dim = args.w_0.shape[0]
 
-        X = torch.randn(n, input_dim)
+        X = torch.randn(args.syntheticsamplesize, input_dim)
         output = torch.mm(X, args.w_0) + args.b
         output_cat_zero = torch.cat((output, torch.zeros(X.shape[0], 1)), 1)
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
-        train_size = int(0.8 * n)
-        test_size = n - train_size
+        train_size = int(0.8 * args.syntheticsamplesize)
+        test_size = args.syntheticsamplesize - train_size
 
         dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
 

@@ -178,6 +178,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
 
     model, w_dim = retrieve_model(args,input_dim,output_dim)
     args.epsilon_dim = w_dim
+    args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
 
     # instantiate generator and discriminator
     G = Generator(args.epsilon_dim, w_dim, args.n_hidden_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -309,6 +310,9 @@ def lambda_thm4(betas, args, kwargs):
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
+        plt.title("One MC realisation")
+        plt.xlabel("1/beta")
+        plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
         plt.show()
 
         # least squares fit for lambda
@@ -360,6 +364,11 @@ def lambda_thm4average(betas, args, kwargs):
         print('Finishing beta {}'.format(beta))
 
 
+    plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
+    plt.title("multiple MC realisation")
+    plt.xlabel("1/beta")
+    plt.ylabel("implicit VI estimate of E_{D_n} E^beta_w [nL_n(w)]")
+    plt.show()
     RLCT_estimate_OLS, RLCT_estimate_GLS = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
 
     return RLCT_estimate_OLS, RLCT_estimate_GLS
@@ -370,10 +379,10 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
-    # crucial parameters
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic'])
+    parser.add_argument('--syntheticsamplesize', type=int, default=60000)
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
                         choices=['FFrelu','CNN','logistic'])
@@ -383,7 +392,7 @@ def main():
                         help='input batch size for training (default: 10)')
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=0.2,
+    parser.add_argument('--betasend', type=float, default=2,
                         help='where beta range should end')
     parser.add_argument('--betalogscale', type=str, default='true',
                         help='true if beta should be on 1/log n scale (default: true)',
@@ -392,16 +401,16 @@ def main():
                         help='number of hidden units in discriminator D')
     parser.add_argument('--n_hidden_G', type=int, default=256,
                         help='number of hidden units in generator G')
-    parser.add_argument('--epsilon_mc', type=int, default=10,
-                        help='number of draws for estimating E_\epsilon')
-    parser.add_argument('--lambda_asymptotic', type=str, default='cor3',
+    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
                         choices=['thm4', 'thm4_average', 'cor3'])
     # as high as possible
-    parser.add_argument('--bl', type=int, default=50,
+    # parser.add_argument('--epsilon_mc', type=int, default=10,
+    #                     help='number of draws for estimating E_\epsilon')
+    parser.add_argument('--bl', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
     parser.add_argument('--MCs', type=int, default=100,
                         help='number of times to split into train-test')
-    parser.add_argument('--R', type=int, default=50,
+    parser.add_argument('--R', type=int, default=100,
                         help='number of MC draws from approximate posterior (default:50)')
     # not so crucial parameters can accept defaults
     parser.add_argument('--wandb_on', action="store_true",
@@ -463,7 +472,7 @@ def main():
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
-        input_dim = 30
+        input_dim = int(np.power(args.syntheticsamplesize, 3/5))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
 
