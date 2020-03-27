@@ -3,8 +3,10 @@ import torch
 from torchvision import datasets, transforms
 from sklearn.datasets import load_iris, load_breast_cancer
 from sklearn.model_selection import train_test_split
-from torch.utils.data import TensorDataset
+from torch.utils.data import TensorDataset, SubsetRandomSampler
 from torch import Tensor
+import torch.nn.functional as F
+import numpy as np
 
 def get_dataset_by_id(args,kwargs):
 
@@ -69,6 +71,35 @@ def get_dataset_by_id(args,kwargs):
 
         input_dim = 30
         output_dim = 2
+
+    elif args.dataset == 'lr_synthetic':
+
+        n = 5000
+        output_dim = 2
+        input_dim = args.w_0.shape[0]
+
+        X = torch.randn(n, input_dim)
+        output = torch.mm(X, args.w_0) + args.b
+        output_cat_zero = torch.cat((output, torch.zeros(X.shape[0], 1)), 1)
+        softmax_output = F.softmax(output_cat_zero, dim=1)
+        y = softmax_output.data.max(1)[1]  # get the index of the max probability
+
+        train_size = int(0.8 * n)
+        test_size = n - train_size
+
+        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
+
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
+
+
+        # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
+        #
+        # dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
+        # dataset_test = TensorDataset(Tensor(X_test), torch.as_tensor(y_test, dtype=torch.long))
+        #
+        # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
     else:
         print('Not a valid dataset name. See options in dataset-factory')

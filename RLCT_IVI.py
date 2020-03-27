@@ -55,7 +55,7 @@ def retrieve_model(args,input_dim,output_dim):
 
     # TODO: how to count parameters automatically?
     if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary'):
+        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
             w_dim = (input_dim + 1)
         elif args.dataset == 'MNIST':
             w_dim = (input_dim + 1) * 9 / 2
@@ -138,6 +138,10 @@ class Generator(nn.Module):
             nn.ReLU(),
             nn.Linear(n_hidden_G, n_hidden_G),
             nn.ReLU(),
+            nn.Linear(n_hidden_G, n_hidden_G),
+            nn.ReLU(),
+            nn.Linear(n_hidden_G, n_hidden_G),
+            nn.ReLU(),
             nn.Linear(n_hidden_G, w_dim)
         )
 
@@ -161,7 +165,7 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
     res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
     rho = res_fit.params
 
-    order = toeplitz(np.arange(betas.size()))
+    order = toeplitz(np.arange(betas.__len__()))
     sigma = rho ** order
 
     gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
@@ -279,10 +283,10 @@ def lambda_cor3(betas, args, kwargs):
 
             lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
             lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
-            print('lambdas_beta1:{}'.format(lambdas_beta1))
+            print('RLCT beta1:{}'.format(lambdas_beta1))
 
         lambdas_mc = np.append(lambdas_mc, lambdas_beta1.mean())
-        print('lambdas_mc:{}'.format(lambdas_mc))
+        print('RLCT mc:{}'.format(lambdas_mc))
 
     return lambdas_mc.mean()
 
@@ -312,7 +316,8 @@ def lambda_thm4(betas, args, kwargs):
         RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
         RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
-        print("RLCT_estimates GLS: {}".format(RLCT_estimates_GLS))
+        print("RLCT GLS: {}".format(RLCT_estimates_GLS))
+
         if args.wandb_on:
             import wandb
             wandb.run.summary["RLCT_estimate_OLS"] = RLCT_estimates_OLS
@@ -333,6 +338,8 @@ def lambda_thm4average(betas, args, kwargs):
 
     for beta in betas:
 
+        print('Starting beta {}'.format(beta))
+
         temperedNLL_perMC_perBeta = np.empty(0)
 
         for mc in range(0, args.MCs):
@@ -350,6 +357,9 @@ def lambda_thm4average(betas, args, kwargs):
 
         temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
 
+        print('Finishing beta {}'.format(beta))
+
+
     RLCT_estimate_OLS, RLCT_estimate_GLS = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
 
     return RLCT_estimate_OLS, RLCT_estimate_GLS
@@ -361,9 +371,9 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     # crucial parameters
-    parser.add_argument('--dataset', type=str, default='breastcancer-binary',
-                        help='dataset name from dataset_factory.py (default: breastcancer-binary)',
-                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST'])
+    parser.add_argument('--dataset', type=str, default='lr_synthetic',
+                        help='dataset name from dataset_factory.py (default: )',
+                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic'])
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
                         choices=['FFrelu','CNN','logistic'])
@@ -451,6 +461,12 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
+    # set true network weights for synthetic dataset
+    if args.dataset == 'lr_synthetic':
+        input_dim = 30
+        args.w_0 = torch.randn(input_dim,1)
+        args.b = torch.randn(1)
+
     # draw a training-testing split just to get some necessary parameters
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
@@ -461,26 +477,33 @@ def main():
     print('(number of parameters)/2: {}'.format(w_dim/2))
 
     # sweep betas
-    betas = np.linspace(args.betasbegin, args.betasend, args.bl)
+    betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.bl)
     if args.betalogscale == 'true':
         betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.bl)
 
     if args.lambda_asymptotic == 'thm4':
 
         RLCT_GLS, RLCT_OLS = lambda_thm4(betas, args, kwargs)
+        results = dict({
+            "RLCT_estimate (OLS)": RLCT_OLS,
+            "RLCT_estimate (GLS)": RLCT_GLS,
+            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim / 2)})
 
     elif args.lambda_asymptotic == 'thm4_average':
 
         RLCT_GLS, RLCT_OLS = lambda_thm4average(betas, args, kwargs)
+        results = dict({
+            "RLCT_estimate (OLS)": RLCT_OLS,
+            "RLCT_estimate (GLS)": RLCT_GLS,
+            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim / 2)})
 
     elif args.lambda_asymptotic == 'cor3':
 
-        RLCT_GLS, RLCT_OLS = lambda_cor3(betas, args, kwargs)
+        RLCT = lambda_cor3(betas, args, kwargs)
+        results = dict({
+            "RLCT_estimate": RLCT,
+            "abs deviation of RLCT estimate from d on 2": np.abs(RLCT - w_dim/2)})
 
-    results = dict({
-        "RLCT_estimate (OLS)": RLCT_OLS,
-        "RLCT_estimate (GLS)": RLCT_GLS,
-        "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim/2)})
 
     print(results)
     if args.wandb_on:
