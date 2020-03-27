@@ -5,9 +5,11 @@ def main(taskid):
     # dataset_num = int(taskid[0])
     #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
+    taskid = int(taskid[0])
+
     if taskid == 0:
         os.system("python3 RLCT_IVI.py "
-                  "--dataset lr_synthetic"
+                  "--dataset lr_synthetic "
                   "--syntheticsamplesize 500 "
                   "--network logistic "
                   "--epochs 20 "
@@ -17,7 +19,7 @@ def main(taskid):
                   "--wandb_on")
     elif taskid == 1:
         os.system("python3 RLCT_IVI.py "
-                  "--dataset lr_synthetic"
+                  "--dataset lr_synthetic "
                   "--syntheticsamplesize 5000 "
                   "--network logistic "
                   "--epochs 20 "
@@ -27,7 +29,7 @@ def main(taskid):
                   "--wandb_on")
     else:
         os.system("python3 RLCT_IVI.py "
-                  "--dataset lr_synthetic"
+                  "--dataset lr_synthetic "
                   "--syntheticsamplesize 50000 "
                   "--network logistic "
                   "--epochs 20 "

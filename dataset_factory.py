@@ -7,6 +7,8 @@ from torch.utils.data import TensorDataset, SubsetRandomSampler
 from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
+from torch.distributions.uniform import Uniform
+from torch.distributions.normal import Normal
 
 def get_dataset_by_id(args,kwargs):
 
@@ -91,7 +93,6 @@ def get_dataset_by_id(args,kwargs):
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-
         # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
         #
         # dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
@@ -99,6 +100,31 @@ def get_dataset_by_id(args,kwargs):
         #
         # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
+
+    elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
+
+        # three-layered neural network of one input unit, p hidden units, and one output unit
+        m = Uniform(torch.tensor([0.0]), torch.tensor([1.0]))
+        X = m.sample(args.syntheticsamplesize)
+
+        p = 20
+        a_params = torch.randn(args.syntheticsamplesize, p)
+        b_params = torch.randn(args.syntheticsamplesize, p)
+
+        # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
+
+        mean = a_params*F.tanh(b_params * X.repeat(1,p))
+        y_rv = Normal(mean,1)
+
+        y = y_rv.sample()
+
+        train_size = int(0.8 * args.syntheticsamplesize)
+        test_size = args.syntheticsamplesize - train_size
+
+        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
+
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
     else:
         print('Not a valid dataset name. See options in dataset-factory')
