@@ -12,6 +12,7 @@ from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
 from matplotlib import pyplot as plt
+import copy
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -101,6 +102,7 @@ def approxinf_nll(r, train_loader, G, model, args):
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
+            # TODO: this block has to be currently manually designed for each model
             data, target = load_minibatch(args, data, target)
             output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
             output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
@@ -114,10 +116,12 @@ def approxinf_nll(r, train_loader, G, model, args):
 
 class Discriminator(nn.Module):
 
-    def __init__(self, w_dim,n_hidden_D):
+    def __init__(self, w_dim, n_hidden_D):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(w_dim, n_hidden_D),
+            nn.ReLU(),
+            nn.Linear(n_hidden_D, n_hidden_D),
             nn.ReLU(),
             nn.Linear(n_hidden_D, n_hidden_D),
             nn.ReLU(),
@@ -131,12 +135,10 @@ class Discriminator(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, epsilon_dim, w_dim,n_hidden_G):
+    def __init__(self, epsilon_dim, w_dim, n_hidden_G):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(epsilon_dim, n_hidden_G),
-            nn.ReLU(),
-            nn.Linear(n_hidden_G, n_hidden_G),
             nn.ReLU(),
             nn.Linear(n_hidden_G, n_hidden_G),
             nn.ReLU(),
@@ -181,8 +183,10 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
     args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
 
     # instantiate generator and discriminator
-    G = Generator(args.epsilon_dim, w_dim, args.n_hidden_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
-    D = Discriminator(w_dim, args.n_hidden_D)  # D = Discriminator(w_dim).to(args.cuda)
+    G_initial = Generator(args.epsilon_dim, w_dim, args.n_hidden_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
+    D_initial = Discriminator(w_dim, args.n_hidden_D)  # D = Discriminator(w_dim).to(args.cuda)
+    G = copy.deepcopy(G_initial)
+    D = copy.deepcopy(D_initial)
 
     opt_primal = optim.Adam(
         G.parameters(),
@@ -192,7 +196,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
         lr=args.lr_dual)
 
     # pretrain discriminator
-    for epoch in range(5):
+    for epoch in range(args.pretrainDepochs):
 
         w_sampled_from_prior = randn((args.batchsize, w_dim), args.cuda)
         eps = randn((args.batchsize, args.epsilon_dim), args.cuda)
@@ -212,7 +216,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
         for batch_idx, (data, target) in enumerate(train_loader):
 
             # opt discriminator more than generator
-            for discriminator_epoch in range(5):
+            for discriminator_epoch in range(args.trainDepochs):
 
                 w_sampled_from_prior = randn((args.epsilon_mc, w_dim), args.cuda)
                 eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
@@ -233,6 +237,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
             # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with args.epsilon_mc realisations
             reconstr_err = 0
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
+                # TODO: this block has to be currently manually designed for each model
                 A = w_sampled_from_G[i, 0:(w_dim-1)]
                 b = w_sampled_from_G[i, w_dim-1]
                 output = torch.mm(data, A.reshape(w_dim-1, 1))+b
@@ -309,23 +314,23 @@ def lambda_thm4(betas, args, kwargs):
             temp, _ = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
-        plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
-        plt.title("One MC realisation")
-        plt.xlabel("1/beta")
-        plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
-        plt.show()
-
         # least squares fit for lambda
         ols, gls = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
         RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
         RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
+        plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
+        plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.w_dim/2))
+        plt.xlabel("1/beta")
+        plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
+        plt.show()
+
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
 
         if args.wandb_on:
             import wandb
-            wandb.run.summary["RLCT_estimate_OLS"] = RLCT_estimates_OLS
-            wandb.run.summary["RLCT_estimate_GLS"] = RLCT_estimates_GLS
+            wandb.run.summary["RLCT_estimate_OLS"] = ols
+            wandb.run.summary["RLCT_estimate_GLS"] = gls
 
         print('Finishing MC {}'.format(mc))
 
@@ -355,7 +360,6 @@ def lambda_thm4average(betas, args, kwargs):
                                               input_dim,
                                               output_dim,
                                               args,
-                                              kwargs,
                                               beta)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
@@ -403,6 +407,12 @@ def main():
                         help='number of hidden units in generator G')
     parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
                         choices=['thm4', 'thm4_average', 'cor3'])
+    parser.add_argument('--pretrainDepochs', type=int, default=2,
+                        help='number of epochs to pretrain discriminator')
+    parser.add_argument('--trainDepochs', type=int, default=2,
+                        help='number of epochs to train discriminator for each minibatch update of generator')
+    parser.add_argument('--dpower',type=float,default=2/5,
+                        help='set dimension of model to n^dpower')
     # as high as possible
     # parser.add_argument('--epsilon_mc', type=int, default=10,
     #                     help='number of draws for estimating E_\epsilon')
@@ -411,7 +421,7 @@ def main():
     parser.add_argument('--MCs', type=int, default=100,
                         help='number of times to split into train-test')
     parser.add_argument('--R', type=int, default=100,
-                        help='number of MC draws from approximate posterior (default:50)')
+                        help='number of MC draws from approximate posterior (default:100)')
     # not so crucial parameters can accept defaults
     parser.add_argument('--wandb_on', action="store_true",
                         help='use wandb to log experiment')
@@ -472,7 +482,7 @@ def main():
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
-        input_dim = int(np.power(args.syntheticsamplesize, 3/5))
+        input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
 
@@ -482,6 +492,7 @@ def main():
 
     # retrieve model
     model, w_dim = retrieve_model(args, input_dim, output_dim)
+    args.w_dim = w_dim
     print(model)
     print('(number of parameters)/2: {}'.format(w_dim/2))
 

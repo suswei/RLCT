@@ -12,30 +12,33 @@ def main(taskid):
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 500 "
                   "--network logistic "
-                  "--epochs 20 "
-                  "--batchsize 50 "
+                  "--epochs 10 "
+                  "--batchsize 10 "
                   "--lambda_asymptotic thm4 "
                   "--betalogscale true "
+                  "--R 20 --MCs 5 "
                   "--wandb_on")
     elif taskid == 1:
         os.system("python3 RLCT_IVI.py "
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 5000 "
                   "--network logistic "
-                  "--epochs 20 "
-                  "--batchsize 50 "
+                  "--epochs 10 "
+                  "--batchsize 10 "
                   "--lambda_asymptotic thm4 "
                   "--betalogscale true "
+                  "--R 20 --MCs 5 "
                   "--wandb_on")
     else:
         os.system("python3 RLCT_IVI.py "
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 50000 "
                   "--network logistic "
-                  "--epochs 20 "
-                  "--batchsize 50 "
+                  "--epochs 10 "
+                  "--batchsize 10 "
                   "--lambda_asymptotic thm4 "
                   "--betalogscale true "
+                  "--R 20 --MCs 5 "
                   "--wandb_on")
 
 
