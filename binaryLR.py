@@ -32,11 +32,15 @@ def main(taskid):
     else:
         os.system("python3 RLCT_IVI.py "
                   "--dataset lr_synthetic "
-                  "--syntheticsamplesize 50000 "
+                  "--syntheticsamplesize 10000 "
                   "--network logistic "
                   "--epochs 10 "
-                  "--batchsize 10 "
+                  "--batchsize 20 "
+                  "--num_hidden_layers_G 4 "
+                  "--num_hidden_layers_D 4 "
                   "--lambda_asymptotic thm4 "
+                  "--betasbegin 0.01 "
+                  "--betasend 0.2 "
                   "--betalogscale true "
                   "--R 20 --MCs 5 "
                   "--wandb_on")

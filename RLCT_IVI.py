@@ -14,6 +14,7 @@ from scipy.linalg import toeplitz
 from matplotlib import pyplot as plt
 import copy
 import pickle
+import itertools
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -118,41 +119,51 @@ def approxinf_nll(r, train_loader, G, model, args):
     return nll.sum()
 
 
-# TODO: add number of layers as input
 class Discriminator(nn.Module):
+    """
+    input layer dim = w_dim, output layer dim = 1
+    first layer Linear(w_dim, n_hidden_D) followed by ReLU
+    num_hidden_layers_D of Linear(n_hidden_D, n_hidden_D) followed by ReLU
+    final layer Linear(n_hidden_D, 1)
+    """
 
-    def __init__(self, w_dim, n_hidden_D):
+    def __init__(self, w_dim, n_hidden_D, num_hidden_layers_D=2):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(w_dim, n_hidden_D),
-            nn.ReLU(),
-            nn.Linear(n_hidden_D, n_hidden_D),
-            nn.ReLU(),
-            nn.Linear(n_hidden_D, n_hidden_D),
-            nn.ReLU(),
-            nn.Linear(n_hidden_D, 1)
-        )
+
+        self.enc_sizes = np.concatenate(
+            ([w_dim], np.repeat(n_hidden_D, num_hidden_layers_D + 1), [1])).tolist()
+        blocks = [[nn.Linear(in_f, out_f), nn.ReLU()]
+                  for in_f, out_f in zip(self.enc_sizes, self.enc_sizes[1:])]
+        blocks = list(itertools.chain(*blocks))
+        del blocks[-1]  # remove the last ReLu, don't need it in output layer
+
+        self.net = nn.Sequential(*blocks)
 
     def forward(self, w):
         return self.net(w)
 
 
-# TODO: add number of layers as input
 class Generator(nn.Module):
+    """
+    input layer dim = epsilon_dim, output layer dim = w_dim
+    first layer Linear(epsilon_dim, n_hidden_G) followed by ReLU
+    num_hidden_layers_G of Linear(n_hidden_G, n_hidden_G) followed by ReLU
+    final layer Linear(n_hidden_G, w_dim)
+    """
 
-    def __init__(self, epsilon_dim, w_dim, n_hidden_G):
+    def __init__(self, epsilon_dim, w_dim, n_hidden_G, num_hidden_layers_G=2):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(epsilon_dim, n_hidden_G),
-            nn.ReLU(),
-            nn.Linear(n_hidden_G, n_hidden_G),
-            nn.ReLU(),
-            nn.Linear(n_hidden_G, n_hidden_G),
-            nn.ReLU(),
-            nn.Linear(n_hidden_G, w_dim)
-        )
+
+        self.enc_sizes = np.concatenate(([epsilon_dim],np.repeat(n_hidden_G,num_hidden_layers_G+1),[w_dim])).tolist()
+        blocks = [ [nn.Linear(in_f,out_f),nn.ReLU()]
+                       for in_f, out_f in zip(self.enc_sizes, self.enc_sizes[1:])]
+        blocks = list(itertools.chain(*blocks))
+        del blocks[-1] # remove the last ReLu, don't need it in output layer
+
+        self.net = nn.Sequential(*blocks)
 
     def forward(self, epsilon):
+
         return self.net(epsilon)
 
 
@@ -189,9 +200,10 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
     args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
 
     # instantiate generator and discriminator
-    G_initial = Generator(args.epsilon_dim, w_dim, args.n_hidden_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
+    G_initial = Generator(args.epsilon_dim, w_dim, args.n_hidden_G, args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
     D_initial = Discriminator(w_dim, args.n_hidden_D)  # D = Discriminator(w_dim).to(args.cuda)
     G = copy.deepcopy(G_initial)
+    print(G)
     D = copy.deepcopy(D_initial)
 
     # optimizers
@@ -444,10 +456,20 @@ def main():
                         default=256,
                         help='number of hidden units in discriminator D')
 
+    parser.add_argument('--num_hidden_layers_D',
+                        type = int,
+                        default=2,
+                        help='number of hidden layers in discriminatro D')
+
     parser.add_argument('--n_hidden_G',
                         type=int,
                         default=256,
                         help='number of hidden units in generator G')
+
+    parser.add_argument('--num_hidden_layers_G',
+                        type = int,
+                        default = 2,
+                        help = 'number of hidden layers in generator G')
 
     parser.add_argument('--lambda_asymptotic',
                         type=str,
