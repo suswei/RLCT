@@ -13,6 +13,7 @@ from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
 from matplotlib import pyplot as plt
 import copy
+import pickle
 
 import models
 from dataset_factory import get_dataset_by_id
@@ -606,6 +607,7 @@ def main():
 
         RLCT_estimates_OLS, RLCT_estimates_GLS = lambda_thm4(betas, args, kwargs)
         results = dict({
+            "d on 2": w_dim / 2,
             "RLCT_estimates (OLS)": RLCT_estimates_OLS,
             "RLCT_estimates (GLS)": RLCT_estimates_GLS,
             "abs deviation of average RLCT estimate (OLS) from d on 2": np.abs(RLCT_estimates_OLS.mean() - w_dim / 2),
@@ -619,7 +621,7 @@ def main():
             "d on 2": w_dim/2,
             "RLCT_estimate (OLS)": RLCT_estimate_OLS,
             "RLCT_estimate (GLS)": RLCT_estimate_GLS,
-            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_OLS - w_dim / 2),
+            "abs deviation of RLCT estimate (OLS) from d on 2": np.abs(RLCT_estimate_OLS - w_dim / 2),
             "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - w_dim / 2)
         })
 
@@ -636,7 +638,10 @@ def main():
     print(results)
     if args.wandb_on:
         wandb.log(results)
-
+        f = open("results.pkl", "wb")
+        pickle.dump(results, f)
+        f.close()
+        wandb.save("results.pkl")
 
 if __name__ == "__main__":
     main()
