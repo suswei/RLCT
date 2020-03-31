@@ -85,8 +85,8 @@ def get_dataset_by_id(args,kwargs):
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
-        train_size = int(0.8 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - train_size
+        train_size = args.syntheticsamplesize
+        test_size = args.syntheticsamplesize
 
         dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
 
@@ -101,6 +101,7 @@ def get_dataset_by_id(args,kwargs):
         # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
+    # TODO: finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         # three-layered neural network of one input unit, p hidden units, and one output unit

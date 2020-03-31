@@ -19,7 +19,32 @@ from dataset_factory import get_dataset_by_id
 
 
 def count_parameters(model):
+
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def retrieve_model(args,input_dim,output_dim):
+
+    # retrieve model
+    if args.network == 'CNN':
+        model = models.CNN(output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
+    if args.network == 'logistic':
+        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+    if args.network == 'FFrelu':
+        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
+
+    # TODO: count parameters automatically
+    if args.network == 'logistic':
+        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
+            w_dim = (input_dim + 1)
+        elif args.dataset == 'MNIST':
+            w_dim = (input_dim + 1) * 9 / 2
+    else:
+        w_dim = count_parameters(model) * (output_dim - 1) / output_dim
+
+    return model, w_dim
 
 
 def load_minibatch(args,data,target):
@@ -42,30 +67,7 @@ def load_minibatch(args,data,target):
     return data, target
 
 
-def retrieve_model(args,input_dim,output_dim):
-
-    # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-
-    # TODO: how to count parameters automatically?
-    if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
-            w_dim = (input_dim + 1)
-        elif args.dataset == 'MNIST':
-            w_dim = (input_dim + 1) * 9 / 2
-    else:
-        w_dim = count_parameters(model) * (output_dim - 1) / output_dim
-
-    return model, w_dim
-
-
+# TODO: should test module be used for logging purposes?
 def test(epoch, test_loader, model, args, verbose=False):
 
     test_loss = 0
@@ -109,11 +111,13 @@ def approxinf_nll(r, train_loader, G, model, args):
             logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
             # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
             nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
+
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
     return nll.sum()
 
 
+# TODO: add number of layers as input
 class Discriminator(nn.Module):
 
     def __init__(self, w_dim, n_hidden_D):
@@ -129,10 +133,10 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, w):
-
         return self.net(w)
 
 
+# TODO: add number of layers as input
 class Generator(nn.Module):
 
     def __init__(self, epsilon_dim, w_dim, n_hidden_G):
@@ -161,6 +165,7 @@ def randn(shape, device):
 
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
+
     ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
 
     ols_resid = ols_model.resid
@@ -188,6 +193,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
     G = copy.deepcopy(G_initial)
     D = copy.deepcopy(D_initial)
 
+    # optimizers
     opt_primal = optim.Adam(
         G.parameters(),
         lr=args.lr_primal)
@@ -218,7 +224,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
             # opt discriminator more than generator
             for discriminator_epoch in range(args.trainDepochs):
 
-                w_sampled_from_prior = randn((args.epsilon_mc, w_dim), args.cuda)
+                w_sampled_from_prior = randn((args.epsilon_mc, w_dim), args.cuda) # TODO: add more options for prior besides hardcoding Gaussian prior
                 eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
                 loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
@@ -237,6 +243,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
             # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with args.epsilon_mc realisations
             reconstr_err = 0
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
+
                 # TODO: this block has to be currently manually designed for each model
                 A = w_sampled_from_G[i, 0:(w_dim-1)]
                 b = w_sampled_from_G[i, w_dim-1]
@@ -252,6 +259,7 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
             G.zero_grad()
             D.zero_grad()
 
+            # minibatch logging on args.log_interval
             pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data).cpu().sum()
             if batch_idx % args.log_interval == 0:
@@ -260,41 +268,18 @@ def approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim,
                         epoch, batch_idx * len(data), len(train_loader.dataset),
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
+        # epoch logging
         print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(
             correct, len(train_loader.dataset),
             100. * correct / len(train_loader.dataset)))
 
     my_list = range(args.R)
     num_cores = 1  # multiprocessing.cpu_count()
-    # return array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
+
+    # approxinf_nlls equals array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
     approxinf_nlls = Parallel(n_jobs=num_cores, verbose=0)(delayed(approxinf_nll)(i, train_loader, G, model, args) for i in my_list)
 
     return np.asarray(approxinf_nlls).mean(), np.asarray(approxinf_nlls)
-
-
-def lambda_cor3(betas, args, kwargs):
-
-    lambdas_mc = np.empty(0)
-
-    for mc in range(0, args.MCs):
-
-        # draw new training-testing split
-        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-
-        lambdas_beta1 = np.empty(0)
-        for beta in betas:
-            beta1 = beta
-            beta2 = beta+0.05/np.log(args.n)
-            _, nlls = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta1)
-
-            lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
-            lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
-            print('RLCT beta1:{}'.format(lambdas_beta1))
-
-        lambdas_mc = np.append(lambdas_mc, lambdas_beta1.mean())
-        print('RLCT mc:{}'.format(lambdas_mc))
-
-    return lambdas_mc.mean()
 
 
 # Thm 4 of Watanabe's WBIC: E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
@@ -329,15 +314,13 @@ def lambda_thm4(betas, args, kwargs):
 
         if args.wandb_on:
             import wandb
-            wandb.run.summary["RLCT_estimate_OLS"] = ols
-            wandb.run.summary["RLCT_estimate_GLS"] = gls
+            wandb.run.summary["running RLCT OLS"] = RLCT_estimates_OLS
+            wandb.run.summary["running RLCT GLS"] = RLCT_estimates_GLS
 
         print('Finishing MC {}'.format(mc))
 
-    RLCT_estimate_OLS = RLCT_estimates_OLS.mean()
-    RLCT_estimate_GLS = RLCT_estimates_GLS.mean()
-
-    return RLCT_estimate_OLS, RLCT_estimate_GLS
+    # return array of RLCT estimates, length args.MCs
+    return RLCT_estimates_OLS, RLCT_estimates_GLS
 
 
 # apply E_{D_n} to Theorem 4 of Watanabe's WBIC: E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
@@ -375,7 +358,34 @@ def lambda_thm4average(betas, args, kwargs):
     plt.show()
     RLCT_estimate_OLS, RLCT_estimate_GLS = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
 
+    # each RLCT estimate is one elment array
     return RLCT_estimate_OLS, RLCT_estimate_GLS
+
+
+def lambda_cor3(betas, args, kwargs):
+
+    RLCT_estimates = np.empty(0)
+
+    for mc in range(0, args.MCs):
+
+        # draw new training-testing split
+        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+
+        lambdas_beta1 = np.empty(0)
+        for beta in betas:
+
+            beta1 = beta
+            beta2 = beta+0.05/np.log(args.n)
+            _, nlls = approxinf_expected_betanll(train_loader, test_loader, input_dim, output_dim, args, beta1)
+
+            lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
+            lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
+            RLCT_estimates = np.append(RLCT_estimates, lambdas_beta1.mean())
+
+
+        print('MC: {} RLCT estimate: {:.2f}'.format(mc, lambdas_beta1.mean()))
+
+    return RLCT_estimates
 
 
 def main():
@@ -383,67 +393,158 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
-    parser.add_argument('--dataset', type=str, default='lr_synthetic',
+    parser.add_argument('--dataset',
+                        type=str,
+                        default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic'])
-    parser.add_argument('--syntheticsamplesize', type=int, default=60000)
-    parser.add_argument('--network', type=str, default='logistic',
+
+    parser.add_argument('--syntheticsamplesize',
+                        type=int,
+                        default=60000,
+                        help='sample size of synthetic dataset')
+
+    parser.add_argument('--network',
+                        type=str,
+                        default='logistic',
                         help='name of network in models.py (default: logistic)',
                         choices=['FFrelu','CNN','logistic'])
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+
+    parser.add_argument('--epochs',
+                        type=int,
+                        default=100,
+                        metavar='N',
                         help='number of epochs to train (default: 100)')
-    parser.add_argument('--batchsize', type=int, default=10, metavar='N',
+
+    parser.add_argument('--batchsize',
+                        type=int,
+                        default=10,
+                        metavar='N',
                         help='input batch size for training (default: 10)')
-    parser.add_argument('--betasbegin', type=float, default=0.1,
+
+    parser.add_argument('--betasbegin',
+                        type=float,
+                        default=0.1,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=2,
+
+    parser.add_argument('--betasend',
+                        type=float,
+                        default=2,
                         help='where beta range should end')
-    parser.add_argument('--betalogscale', type=str, default='true',
+
+    parser.add_argument('--betalogscale',
+                        type=str,
+                        default='true',
                         help='true if beta should be on 1/log n scale (default: true)',
                         choices=['true','false'])
-    parser.add_argument('--n_hidden_D', type=int, default=256,
+
+    parser.add_argument('--n_hidden_D',
+                        type=int,
+                        default=256,
                         help='number of hidden units in discriminator D')
-    parser.add_argument('--n_hidden_G', type=int, default=256,
+
+    parser.add_argument('--n_hidden_G',
+                        type=int,
+                        default=256,
                         help='number of hidden units in generator G')
-    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
+
+    parser.add_argument('--lambda_asymptotic',
+                        type=str,
+                        default='thm4',
+                        help='which asymptotic characterisation of lambda to use',
                         choices=['thm4', 'thm4_average', 'cor3'])
-    parser.add_argument('--pretrainDepochs', type=int, default=2,
+
+    parser.add_argument('--pretrainDepochs', 
+                        type=int, 
+                        default=2,
                         help='number of epochs to pretrain discriminator')
-    parser.add_argument('--trainDepochs', type=int, default=2,
+    
+    parser.add_argument('--trainDepochs', 
+                        type=int, 
+                        default=2,
                         help='number of epochs to train discriminator for each minibatch update of generator')
-    parser.add_argument('--dpower',type=float,default=2/5,
+    
+    parser.add_argument('--dpower',
+                        type=float,
+                        default=2/5,
                         help='set dimension of model to n^dpower')
+    
     # as high as possible
     # parser.add_argument('--epsilon_mc', type=int, default=10,
     #                     help='number of draws for estimating E_\epsilon')
-    parser.add_argument('--bl', type=int, default=20,
+    parser.add_argument('--numbetas',
+                        type=int, 
+                        default=20,
                         help='how many betas should be swept between betasbegin and betasend')
-    parser.add_argument('--MCs', type=int, default=100,
+
+    parser.add_argument('--MCs',
+                        type=int,
+                        default=100,
                         help='number of times to split into train-test')
-    parser.add_argument('--R', type=int, default=100,
+
+    parser.add_argument('--R',
+                        type=int,
+                        default=100,
                         help='number of MC draws from approximate posterior (default:100)')
-    # not so crucial parameters can accept defaults
-    parser.add_argument('--wandb_on', action="store_true",
+
+    parser.add_argument('--wandb_on',
+                        action="store_true",
                         help='use wandb to log experiment')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+
+    parser.add_argument('--test-batch-size',
+                        type=int,
+                        default=1000,
+                        metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--lr_primal', type=float, default=1e-4, metavar='LR',
+
+    parser.add_argument('--lr_primal',
+                        type=float,
+                        default=1e-4,
+                        metavar='LR',
                         help='primal learning rate (default: 0.01)')
-    parser.add_argument('--lr_dual', type=float, default=1e-4, metavar='LR',
+
+    parser.add_argument('--lr_dual',
+                        type=float,
+                        default=1e-4,
+                        metavar='LR',
                         help='dual learning rate (default: 0.01)')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+
+    parser.add_argument('--lr',
+                        type=float,
+                        default=0.01,
+                        metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+
+    parser.add_argument('--momentum',
+                        type=float,
+                        default=0.5,
+                        metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+
+    parser.add_argument('--no-cuda',
+                        action='store_true',
+                        default=False,
                         help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
+
+    parser.add_argument('--seed',
+                        type=int,
+                        default=1,
+                        metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+
+    parser.add_argument('--log-interval',
+                        type=int,
+                        default=10,
+                        metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
-                        help='prior used (default: gaussian)',
+
+    parser.add_argument('--prior',
+                        type=str,
+                        default='gaussian',
+                        metavar='P',
+                        help='prior used on model parameters (default: gaussian)',
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
+
     args = parser.parse_args()
     print(vars(args))
 
@@ -497,32 +598,39 @@ def main():
     print('(number of parameters)/2: {}'.format(w_dim/2))
 
     # sweep betas
-    betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.bl)
+    betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
     if args.betalogscale == 'true':
-        betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.bl)
+        betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)
 
     if args.lambda_asymptotic == 'thm4':
 
-        RLCT_GLS, RLCT_OLS = lambda_thm4(betas, args, kwargs)
+        RLCT_estimates_OLS, RLCT_estimates_GLS = lambda_thm4(betas, args, kwargs)
         results = dict({
-            "RLCT_estimate (OLS)": RLCT_OLS,
-            "RLCT_estimate (GLS)": RLCT_GLS,
-            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim / 2)})
+            "RLCT_estimates (OLS)": RLCT_estimates_OLS,
+            "RLCT_estimates (GLS)": RLCT_estimates_GLS,
+            "abs deviation of average RLCT estimate (OLS) from d on 2": np.abs(RLCT_estimates_OLS.mean() - w_dim / 2),
+            "abs deviation of average RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimates_GLS.mean() - w_dim / 2)
+        })
 
     elif args.lambda_asymptotic == 'thm4_average':
 
-        RLCT_GLS, RLCT_OLS = lambda_thm4average(betas, args, kwargs)
+        RLCT_estimate_OLS, RLCT_estimate_GLS = lambda_thm4average(betas, args, kwargs)
         results = dict({
-            "RLCT_estimate (OLS)": RLCT_OLS,
-            "RLCT_estimate (GLS)": RLCT_GLS,
-            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_GLS - w_dim / 2)})
+            "d on 2": w_dim/2,
+            "RLCT_estimate (OLS)": RLCT_estimate_OLS,
+            "RLCT_estimate (GLS)": RLCT_estimate_GLS,
+            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_OLS - w_dim / 2),
+            "abs deviation of RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimate_GLS - w_dim / 2)
+        })
 
     elif args.lambda_asymptotic == 'cor3':
 
-        RLCT = lambda_cor3(betas, args, kwargs)
+        RLCT_estimates = lambda_cor3(betas, args, kwargs)
         results = dict({
-            "RLCT_estimate": RLCT,
-            "abs deviation of RLCT estimate from d on 2": np.abs(RLCT - w_dim/2)})
+            "d on 2": w_dim/2,
+            "RLCT estimates (one per training set)": RLCT_estimates,
+            "average RLCT estimate": RLCT_estimates.mean(),
+            "abs deviation of RLCT estimate from d on 2": np.abs(RLCT_estimates.mean() - w_dim/2)})
 
 
     print(results)
