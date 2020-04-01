@@ -104,7 +104,8 @@ def get_dataset_by_id(args,kwargs):
     # TODO: finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
-        # three-layered neural network of one input unit, p hidden units, and one output unit
+        # what Watanabe calls three-layered neural network is actually one hidden layer
+        # one input unit, p hidden units, and one output unit
         m = Uniform(torch.tensor([0.0]), torch.tensor([1.0]))
         X = m.sample(args.syntheticsamplesize)
 
@@ -126,6 +127,11 @@ def get_dataset_by_id(args,kwargs):
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
+
+    # TODO
+    elif args.dataset == 'reducedrank_synthetic':
+
+        print("TODO!")
 
     else:
         print('Not a valid dataset name. See options in dataset-factory')

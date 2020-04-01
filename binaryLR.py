@@ -34,17 +34,16 @@ def main(taskid):
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 10000 "
                   "--network logistic "
-                  "--epochs 10 "
+                  "--epochs 20 "
                   "--batchsize 20 "
                   "--num_hidden_layers_G 4 "
                   "--num_hidden_layers_D 4 "
                   "--lambda_asymptotic thm4 "
-                  "--betasbegin 0.01 "
-                  "--betasend 0.2 "
+                  "--betasbegin 0.1 "
+                  "--betasend 0.5 "
                   "--betalogscale true "
                   "--R 20 --MCs 5 "
                   "--wandb_on")
-
 
 if __name__ == "__main__":
     main(sys.argv[1:])
