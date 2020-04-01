@@ -9,7 +9,6 @@ import numpy as np
 from joblib import Parallel, delayed
 import random
 import copy
-import wandb
 from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
@@ -190,7 +189,7 @@ def main():
     parser.add_argument('--R', type=int, default=50,
                         help='number of MC draws from approximate posterior q (default:)')
     # not so crucial parameters can accept defaults
-    parser.add_argument('--wandb_on',action="store_true",default=True,
+    parser.add_argument('--wandb_on',action="store_true",
                         help='use wandb to log experiment')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -211,6 +210,7 @@ def main():
     print(vars(args))
 
     if args.wandb_on:
+        import wandb
         wandb.init(project="RLCT", entity="unimelb_rlct")
         wandb.config.update(args)
 
