@@ -8,7 +8,7 @@ def main(taskid):
     taskid = int(taskid[0])
 
     if taskid == 0:
-        os.system("python3 RLCT_IVI.py "
+        os.system("python3 main.py "
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 500 "
                   "--network logistic "
@@ -19,7 +19,7 @@ def main(taskid):
                   "--R 20 --MCs 5 "
                   "--wandb_on")
     elif taskid == 1:
-        os.system("python3 RLCT_IVI.py "
+        os.system("python3 main.py "
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 5000 "
                   "--network logistic "
@@ -30,7 +30,7 @@ def main(taskid):
                   "--R 20 --MCs 5 "
                   "--wandb_on")
     else:
-        os.system("python3 RLCT_IVI.py "
+        os.system("python3 main.py "
                   "--dataset lr_synthetic "
                   "--syntheticsamplesize 10000 "
                   "--network logistic "

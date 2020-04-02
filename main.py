@@ -528,6 +528,7 @@ def main():
     args = parser.parse_args()
     print(vars(args))
 
+    # TODO: maybe should switch to Tensorboard, wandb does not seem to have many users
     if args.wandb_on:
         import wandb
         wandb.init(project="RLCT", entity="unimelb_rlct")
