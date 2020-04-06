@@ -101,7 +101,7 @@ def get_dataset_by_id(args,kwargs):
         # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-    # TODO: finish coding
+    # TODO: (HUI) finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         # what Watanabe calls three-layered neural network is actually one hidden layer
@@ -128,7 +128,7 @@ def get_dataset_by_id(args,kwargs):
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-    # TODO
+    # TODO (HUI)
     elif args.dataset == 'reducedrank_synthetic':
 
         print("TODO!")
@@ -137,6 +137,6 @@ def get_dataset_by_id(args,kwargs):
         print('Not a valid dataset name. See options in dataset-factory')
 
 
-
+    # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
     return train_loader, test_loader, input_dim, output_dim
 

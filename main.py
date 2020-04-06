@@ -70,6 +70,7 @@ class Generator(nn.Module):
 
 # TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and ivi.py
 def train_implicitVI(train_loader, args, beta):
+
     # instantiate generator and discriminator
     G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G,
                           args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -128,7 +129,7 @@ def train_implicitVI(train_loader, args, beta):
             reconstr_err = 0
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
 
-                # TODO: this block has to be currently manually designed for each model
+                # TODO: (HUI) this block has to be currently manually designed for each model
                 A = w_sampled_from_G[i, 0:(args.w_dim - 1)]
                 b = w_sampled_from_G[i, args.w_dim - 1]
                 output = torch.mm(data, A.reshape(args.w_dim - 1, 1)) + b
@@ -157,6 +158,7 @@ def train_implicitVI(train_loader, args, beta):
             correct, len(train_loader.dataset),
             100. * correct / len(train_loader.dataset)))
 
+    return G
 
 def train_explicitVI(train_loader, args, beta, verbose=True):
 
@@ -253,7 +255,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            # TODO: this block has to be currently manually designed for each model
+            # TODO: (HUI) this block has to be currently manually designed for each model
             data, target = load_minibatch(args, data, target)
             output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
             output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
@@ -291,7 +293,7 @@ def approxinf_nll(train_loader, test_loader, input_dim, output_dim, args, beta):
 
     if args.VItype == 'implicit':
 
-        G = train_implicitVI((train_loader, args, beta))
+        G = train_implicitVI(train_loader, args, beta)
 
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
