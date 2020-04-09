@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import numpy as np
 from torch.distributions.uniform import Uniform
 from torch.distributions.normal import Normal
-from torch.distributions.multivariate_normal import MultivariateNormal
 
 def get_dataset_by_id(args,kwargs):
 
@@ -106,12 +105,17 @@ def get_dataset_by_id(args,kwargs):
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         # what Watanabe calls three-layered neural network is actually one hidden layer
-        # one input unit, H hidden units, and one output unit
+        # one input unit, p hidden units, and one output unit
         m = Uniform(torch.tensor([0.0]), torch.tensor([1.0]))
-        X = m.sample(torch.Size([args.syntheticsamplesize]))
+        X = m.sample(args.syntheticsamplesize)
+
+        p = 20
+        a_params = torch.randn(args.syntheticsamplesize, p)
+        b_params = torch.randn(args.syntheticsamplesize, p)
 
         # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
+
+        mean = a_params*F.tanh(b_params * X.repeat(1,p))
         y_rv = Normal(mean,1)
 
         y = y_rv.sample()
@@ -123,30 +127,16 @@ def get_dataset_by_id(args,kwargs):
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
-        input_dim = X.shape[1]
-        output_dim = y.shape[1]
+
     # TODO (HUI)
     elif args.dataset == 'reducedrank_synthetic':
-        m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
-        X = m.sample(torch.Size([args.syntheticsamplesize]))
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
-        y_rv = MultivariateNormal(mean, torch.eye(args.H))
 
-        y = y_rv.sample()
+        print("TODO!")
 
-        train_size = int(0.8 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - train_size
-
-        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
-
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
-        input_dim = X.shape[1]
-        output_dim = y.shape[1]
     else:
         print('Not a valid dataset name. See options in dataset-factory')
+
+
     # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
     return train_loader, test_loader, input_dim, output_dim
-
-
 

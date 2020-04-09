@@ -16,7 +16,7 @@ def count_parameters(model):
 
 
 def retrieve_model(args,input_dim,output_dim):
-    #M is the input dimension, H is hidden unit number, N is the output dimension for '3layertanh_synthetic' and 'reducedrank_synthetic'
+
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=output_dim)
@@ -26,10 +26,6 @@ def retrieve_model(args,input_dim,output_dim):
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
         print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'Tanh':
-        model = models.Tanh(input_dim=input_dim, output_dim=output_dim, H=args.H)
-    if args.network == 'ReducedRankRegression':
-        model = models.ReducedRankRegression(input_dim=input_dim, output_dim=output_dim, H=args.H)
 
     # TODO: count parameters automatically
     if args.network == 'logistic':
@@ -37,8 +33,6 @@ def retrieve_model(args,input_dim,output_dim):
             w_dim = (input_dim + 1)
         elif args.dataset == 'MNIST':
             w_dim = (input_dim + 1) * 9 / 2
-    elif args.network in ['Tanh', 'ReducedRankRegression']:
-        w_dim = (input_dim + output_dim)*args.H
     else:
         w_dim = count_parameters(model) * (output_dim - 1) / output_dim
 
@@ -86,11 +80,9 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
     order = toeplitz(np.arange(betas.__len__()))
     sigma = rho ** order
 
-    if np.linalg.det(sigma)==0:
-        return ols_model.params[1], None
-    else:
-        gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
-        return ols_model.params[1], gls_model.params[1]
+    gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
+
+    return ols_model.params[1], gls_model.params[1]
 
 
 # TODO: this test module was copied from original pyvarinf package, needs to be updated to fit into current framework

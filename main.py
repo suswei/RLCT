@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 import copy
 import pickle
 import itertools
-import math
+
 import pyvarinf
 import models
 from dataset_factory import get_dataset_by_id
@@ -99,8 +99,6 @@ def train_implicitVI(train_loader, args, beta):
         G.zero_grad()
         D.zero_grad()
 
-    if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
-        MSEloss = nn.MSELoss(reduction='mean')
     # train discriminator and generator together
     for epoch in range(args.epochs):
 
@@ -132,19 +130,13 @@ def train_implicitVI(train_loader, args, beta):
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
 
                 # TODO: (HUI) this block has to be currently manually designed for each model
-                if args.dataset == 'lr_synthetic':
-                    A = w_sampled_from_G[i, 0:(args.w_dim - 1)]
-                    b = w_sampled_from_G[i, args.w_dim - 1]
-                    output = torch.mm(data, A.reshape(args.w_dim - 1, 1)) + b
-                    output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
-                    logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
-                    # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
-                    reconstr_err += F.nll_loss(logsoftmax_output, target, reduction="mean")
-                elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
-                    mean = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                    reconstr_err += MSEloss(mean, target) #reduction is set to be 'mean' by default
+                A = w_sampled_from_G[i, 0:(args.w_dim - 1)]
+                b = w_sampled_from_G[i, args.w_dim - 1]
+                output = torch.mm(data, A.reshape(args.w_dim - 1, 1)) + b
+                output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
+                logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
+                # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
+                reconstr_err += F.nll_loss(logsoftmax_output, target, reduction="mean")
 
             loss_primal = reconstr_err / args.epsilon_mc + torch.mean(D(w_sampled_from_G)) / (beta * args.n)
             loss_primal.backward(retain_graph=True)
@@ -153,9 +145,8 @@ def train_implicitVI(train_loader, args, beta):
             D.zero_grad()
 
             # minibatch logging on args.log_interval
-            if args.dataset == 'lr_synthetic':
-                pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
-                correct += pred.eq(target.data).cpu().sum()
+            pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data).cpu().sum()
             if batch_idx % args.log_interval == 0:
                 print(
                     'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
@@ -181,11 +172,6 @@ def train_explicitVI(train_loader, args, beta, verbose=True):
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
         print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'Tanh':
-        model = models.Tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-    if args.network == 'ReducedRankRegression':
-        model = models.ReducedRankRegression(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-
 
     # variationalize model
     var_model_initial = pyvarinf.Variationalize(model)
@@ -214,9 +200,6 @@ def train_explicitVI(train_loader, args, beta, verbose=True):
         var_model.cuda()
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
-    if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
-        MSEloss = nn.MSELoss(reduction='mean')
-
     # train var_model
     for epoch in range(1, args.epochs + 1):
 
@@ -242,10 +225,7 @@ def train_explicitVI(train_loader, args, beta, verbose=True):
             optimizer.zero_grad()
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
-            if args.dataset == 'lr_synthetic':
-                loss_error = F.nll_loss(output, target, reduction="mean")
-            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                loss_error = MSEloss(output, target)
+            loss_error = F.nll_loss(output, target, reduction="mean")
             loss_prior = var_model.prior_loss() / (beta*args.n)
             loss = loss_error + loss_prior  # this is the ELBO
             loss.backward()
@@ -268,29 +248,20 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
         eps = randn((1, args.epsilon_dim), args.cuda)
         w_sampled_from_G = G(eps)
         w_dim = w_sampled_from_G.shape[1]
-        if args.dataset == 'lr_synthetic':
-            A = w_sampled_from_G[0, 0:(w_dim - 1)]
-            b = w_sampled_from_G[0, w_dim - 1]
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
 
-        if args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            MSEloss = nn.MSELoss(reduction='sum')
+        A = w_sampled_from_G[0, 0:(w_dim - 1)]
+        b = w_sampled_from_G[0, w_dim - 1]
+
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
             # TODO: (HUI) this block has to be currently manually designed for each model
             data, target = load_minibatch(args, data, target)
-            if args.dataset == 'lr_synthetic':
-                output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
-                output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
-                logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
-                # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
-                nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
-            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                mean = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                nll_new = MSEloss(mean, target)
+            output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
+            output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
+            logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
+            # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
+            nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
 
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
@@ -300,8 +271,6 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
 # w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
 
-    if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
-        MSEloss = nn.MSELoss(reduction='sum')
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -309,10 +278,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
 
         sample.draw()
         output = sample(data)
-        if args.dataset == 'lr_synthetic':
-            nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            nll = np.append(nll, np.array(MSEloss(output, target).detach().cpu().numpy()))
+        nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
 
     return nll.sum()
 
@@ -361,7 +327,6 @@ def lambda_thm4(betas, args, kwargs):
 
         print('Starting MC {}'.format(mc))
         # draw new training-testing split
-
         train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
 
         temperedNLL_perMC_perBeta = np.empty(0)
@@ -371,15 +336,14 @@ def lambda_thm4(betas, args, kwargs):
 
         # least squares fit for lambda
         ols, gls = lsfit_lambda(temperedNLL_perMC_perBeta, betas)
-        if gls != None:
-            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
-            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
+        RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
+        RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
-            plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
-            plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.w_dim/2))
-            plt.xlabel("1/beta")
-            plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
-            #plt.show()
+        plt.scatter(1 / betas, temperedNLL_perMC_perBeta)
+        plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.w_dim/2))
+        plt.xlabel("1/beta")
+        plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
+        plt.show()
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
 
@@ -466,7 +430,7 @@ def main():
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
-                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'])
+                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic'])
 
     parser.add_argument('--syntheticsamplesize', type=int, default=60000,
                         help='sample size of synthetic dataset')
@@ -477,7 +441,7 @@ def main():
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
-                        choices=['FFrelu','CNN','logistic', 'Tanh', 'ReducedRankRegression'])
+                        choices=['FFrelu','CNN','logistic'])
 
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
@@ -499,7 +463,7 @@ def main():
                         help='number of hidden units in discriminator D')
 
     parser.add_argument('--num_hidden_layers_D', type = int, default=2,
-                        help='number of hidden layers in discriminatror D')
+                        help='number of hidden layers in discriminatro D')
 
     parser.add_argument('--n_hidden_G', type=int, default=256,
                         help='number of hidden units in generator G')
@@ -562,8 +526,6 @@ def main():
     parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
                         help='prior used on model parameters (default: gaussian)',
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
-    parser.add_argument("--mode", default='client')
-    parser.add_argument("--port", default=62364)
 
     args = parser.parse_args()
     print(vars(args))
@@ -589,21 +551,6 @@ def main():
         input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
-    elif args.dataset == '3layertanh_synthetic':
-        H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
-        args.H = H
-        args.a_params = torch.zeros([1, H], dtype=torch.float32)
-        args.b_params = torch.zeros([H, 1], dtype=torch.float32)
-    elif args.dataset == 'reducedrank_synthetic':
-        #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
-        #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
-        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize, args.dpower)))/4)
-        H = output_dim
-        input_dim = output_dim + 3
-        args.H = H
-        args.a_params = torch.cat((torch.eye(H),torch.ones([input_dim-H, H],dtype=torch.float32)), 0)
-        args.b_params = torch.eye(output_dim)
-        #in this case, the rank r for args.a_params * args.b_params is H, output_dim + H < input_dim + r is satisfied
 
     # draw a training-testing split just to get some necessary parameters
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
@@ -613,7 +560,6 @@ def main():
 
     # retrieve model
     model, w_dim = retrieve_model(args, input_dim, output_dim)
-
     args.model = model
     args.w_dim = w_dim
     print(model)
