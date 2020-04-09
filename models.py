@@ -42,3 +42,25 @@ class LogisticRegression(nn.Module):
     def forward(self, x):
         x = self.linear(x)
         return F.log_softmax(x, dim=1)
+
+class Tanh(nn.Module):
+    def __init__(self, input_dim, output_dim, H):
+        super(Tanh, self).__init__()
+        self.fc1 = nn.Linear(input_dim, H)
+        self.fc2 = nn.Linear(H, output_dim)
+
+    def forward(self, x):
+        x = F.tanh(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+class ReducedRankRegression(nn.Module):
+    def __init__(self, input_dim, output_dim, H):
+        super(ReducedRankRegression, self).__init__()
+        self.fc1 = nn.Linear(input_dim, H)
+        self.fc2 = nn.Linear(H, output_dim)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
