@@ -594,6 +594,9 @@ def main():
         args.H = H
         args.a_params = torch.zeros([1, H], dtype=torch.float32)
         args.b_params = torch.zeros([H, 1], dtype=torch.float32)
+
+        max_integer = int(math.sqrt(args.H))
+        true_RLCT = (H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
     elif args.dataset == 'reducedrank_synthetic':
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
@@ -604,6 +607,8 @@ def main():
         args.a_params = torch.cat((torch.eye(H),torch.ones([input_dim-H, H],dtype=torch.float32)), 0)
         args.b_params = torch.eye(output_dim)
         #in this case, the rank r for args.a_params * args.b_params is H, output_dim + H < input_dim + r is satisfied
+
+        true_RLCT = (output_dim * H - H * H + input_dim * H)/2  # rank r = H for the 'reducedrank_synthetic' dataset
 
     # draw a training-testing split just to get some necessary parameters
     train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
@@ -631,8 +636,11 @@ def main():
             "d on 2": w_dim / 2,
             "RLCT_estimates (OLS)": RLCT_estimates_OLS,
             "RLCT_estimates (GLS)": RLCT_estimates_GLS,
+            "mean of RLCT_estimates (OLS)": RLCT_estimates_OLS.mean(),
+            "mean of RLCT_estimates (GLS)": RLCT_estimates_GLS.mean(),
             "abs deviation of average RLCT estimate (OLS) from d on 2": np.abs(RLCT_estimates_OLS.mean() - w_dim / 2),
-            "abs deviation of average RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimates_GLS.mean() - w_dim / 2)
+            "abs deviation of average RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimates_GLS.mean() - w_dim / 2),
+            "true RLCT": true_RLCT
         })
 
     elif args.lambda_asymptotic == 'thm4_average':
