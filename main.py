@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
@@ -89,6 +89,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
     opt_dual = optim.Adam(
         D.parameters(),
         lr=args.lr_dual)
+    scheduler_G = ReduceLROnPlateau(opt_primal, mode='min', factor=0.1, patience=3, verbose=True)
 
     # pretrain discriminator
     for epoch in range(args.pretrainDepochs):
@@ -103,10 +104,11 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
         D.zero_grad()
 
     if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
-        MSEloss = nn.MSELoss(reduction='mean')
-        training_loss, valid_loss = [], []
+        train_loss, valid_loss = [], []
+
     # train discriminator and generator together
     for epoch in range(args.epochs):
+
         D.train()
 
         if args.dataset == 'lr_synthetic':
@@ -147,7 +149,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                     output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
                     logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
                     # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
-                    reconstr_err += F.nll_loss(logsoftmax_output, target, reduction="mean")
+                    reconstr_err += args.loss(logsoftmax_output, target)
                 elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
                     a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
                     b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
@@ -155,7 +157,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                         output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
                     else:
                         output = torch.matmul(torch.matmul(data, a_params), b_params)
-                    reconstr_err += MSEloss(output, target) #reduction is set to be 'mean' by default
+                    reconstr_err += args.loss(output, target) #reduction is set to be 'mean' by default
 
             loss_primal = reconstr_err / args.epsilon_mc + torch.mean(D(w_sampled_from_G)) / (beta * args.n)
             loss_primal.backward(retain_graph=True)
@@ -168,7 +170,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                 pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
                 correct += pred.eq(target.data).cpu().sum()
             elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                training_sum_se += MSEloss(output, target).detach().cpu().numpy()*len(target)
+                training_sum_se += args.loss(output, target).detach().cpu().numpy()*len(target)
             if batch_idx % args.log_interval == 0:
                 print(
                     'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
@@ -183,9 +185,18 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                    valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
                 else:
                    valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
-                valid_sum_se += MSEloss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-            valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(valid_loader.dataset))]
-            training_loss += [training_sum_se/len(train_loader.dataset)+torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
+                valid_sum_se += args.loss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
+            valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
+
+            train_sum_se = 0
+            for train_batch_id, (train_data, train_target) in enumerate(train_loader):
+                train_data, train_target = load_minibatch(args, train_data, train_target)
+                if args.dataset == '3layertanh_synthetic':
+                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
+                else:
+                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
+                train_sum_se += args.loss(train_output, train_target).detach().cpu().numpy() * len(train_target)
+            train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
 
         # epoch logging
         if args.dataset == 'lr_synthetic':
@@ -195,9 +206,9 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
         elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
             print('\nTrain set: MSE: {} \n'.format(training_sum_se/len(train_loader.dataset)))
 
-    if (mc <10) and (beta==betas[0]):
+    if (mc <10) and (beta==betas[0]) and (args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']):
         fig = plt.figure(figsize=(10, 7))
-        lines1 = plt.plot(list(range(0, args.epochs)), training_loss,
+        lines1 = plt.plot(list(range(0, args.epochs)), train_loss,
                           list(range(0, args.epochs)), valid_loss)
         plt.legend(('training mse', 'validation mse'), loc='upper right', fontsize=16)
         plt.xlabel('epoch number', fontsize=16)
@@ -313,8 +324,6 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
             b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
 
-        if args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            MSEloss = nn.MSELoss(reduction='sum')
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -325,13 +334,13 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
                 output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
                 logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
-                nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
+                nll_new = args.loss(logsoftmax_output, target)*len(target) #sum
             elif args.dataset == '3layertanh_synthetic':
                 output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                nll_new = MSEloss(output, target)
+                nll_new = args.loss(output, target)*len(target) #sum
             elif args.dataset == 'reducedrank_synthetic':
                 output = torch.matmul(torch.matmul(data, a_params), b_params)
-                nll_new = MSEloss(output, target)
+                nll_new = args.loss(output, target)*len(target) #sum
 
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
@@ -403,7 +412,7 @@ def lambda_thm4(betas, args, kwargs):
         print('Starting MC {}'.format(mc))
         # draw new training-testing split
 
-        train_loader, valid_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+        train_loader, valid_loader, test_loader, input_dim, output_dim, loss = get_dataset_by_id(args, kwargs)
 
         temperedNLL_perMC_perBeta = np.empty(0)
         for beta in betas:
@@ -657,10 +666,11 @@ def main():
         true_RLCT = (output_dim * H - H * H + input_dim * H)/2  # rank r = H for the 'reducedrank_synthetic' dataset
 
     # draw a training-testing split just to get some necessary parameters
-    train_loader, valid_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+    train_loader, valid_loader, test_loader, input_dim, output_dim, loss = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
     args.input_dim = input_dim
     args.output_dim = output_dim
+    args.loss = loss
 
     # retrieve model
     model, w_dim = retrieve_model(args, input_dim, output_dim)

@@ -1,5 +1,6 @@
 from __future__ import print_function
 import torch
+import torch.nn as nn
 from torchvision import datasets, transforms
 from sklearn.datasets import load_iris, load_breast_cancer
 from sklearn.model_selection import train_test_split
@@ -96,6 +97,9 @@ def get_dataset_by_id(args,kwargs):
         valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
+        def loss(logsoftmax_output, target):
+            loss_value = F.nll_loss(logsoftmax_output, target, reduction="mean")
+            return loss_value
         # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
         #
         # dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
@@ -129,6 +133,7 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
+        loss = nn.MSELoss(reduction='mean')
     # TODO (HUI)
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
@@ -149,10 +154,11 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
+        loss = nn.MSELoss(reduction='mean')
     else:
         print('Not a valid dataset name. See options in dataset-factory')
     # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
-    return train_loader, valid_loader, test_loader, input_dim, output_dim
+    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss
 
 
 
