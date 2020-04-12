@@ -86,12 +86,14 @@ def get_dataset_by_id(args,kwargs):
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
-        train_size = args.syntheticsamplesize
-        test_size = args.syntheticsamplesize
+        train_size = int(0.7 * args.syntheticsamplesize)
+        valid_size = int(0.15 * args.syntheticsamplesize)
+        test_size = args.syntheticsamplesize - valid_size - train_size
 
-        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
+        dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[train_size, valid_size, test_size])
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
         # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
@@ -116,12 +118,14 @@ def get_dataset_by_id(args,kwargs):
 
         y = y_rv.sample()
 
-        train_size = int(0.8 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - train_size
+        train_size = int(0.7 * args.syntheticsamplesize)
+        valid_size = int(0.15*args.syntheticsamplesize)
+        test_size = args.syntheticsamplesize - valid_size - train_size
 
-        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
+        dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, valid_size, test_size])
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
@@ -134,19 +138,21 @@ def get_dataset_by_id(args,kwargs):
 
         y = y_rv.sample()
 
-        train_size = int(0.8 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - train_size
+        train_size = int(0.7 * args.syntheticsamplesize)
+        valid_size = int(0.15 * args.syntheticsamplesize)
+        test_size = args.syntheticsamplesize - valid_size - train_size
 
-        dataset_train, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, test_size])
+        dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[train_size, valid_size, test_size])
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
     else:
         print('Not a valid dataset name. See options in dataset-factory')
     # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
-    return train_loader, test_loader, input_dim, output_dim
+    return train_loader, valid_loader, test_loader, input_dim, output_dim
 
 
 

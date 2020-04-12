@@ -1,11 +1,14 @@
 from __future__ import print_function
+import os
 import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
+from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
+import pandas as pd
 from joblib import Parallel, delayed
 import random
 from matplotlib import pyplot as plt
@@ -69,7 +72,7 @@ class Generator(nn.Module):
 
 
 # TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and ivi.py
-def train_implicitVI(train_loader, args, beta):
+def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
 
     # instantiate generator and discriminator
     G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G,
@@ -101,10 +104,14 @@ def train_implicitVI(train_loader, args, beta):
 
     if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
         MSEloss = nn.MSELoss(reduction='mean')
+        training_mse, valid_mse = [], []
     # train discriminator and generator together
     for epoch in range(args.epochs):
 
-        correct = 0
+        if args.dataset == 'lr_synthetic':
+            correct = 0
+        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+            training_sum_se = 0
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -143,8 +150,8 @@ def train_implicitVI(train_loader, args, beta):
                 elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
                     a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
                     b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
-                    mean = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                    reconstr_err += MSEloss(mean, target) #reduction is set to be 'mean' by default
+                    output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                    reconstr_err += MSEloss(output, target) #reduction is set to be 'mean' by default
 
             loss_primal = reconstr_err / args.epsilon_mc + torch.mean(D(w_sampled_from_G)) / (beta * args.n)
             loss_primal.backward(retain_graph=True)
@@ -156,16 +163,39 @@ def train_implicitVI(train_loader, args, beta):
             if args.dataset == 'lr_synthetic':
                 pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
                 correct += pred.eq(target.data).cpu().sum()
+            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+                training_sum_se += MSEloss(output, target).detach().cpu().numpy()*len(target)
             if batch_idx % args.log_interval == 0:
                 print(
                     'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
                         epoch, batch_idx * len(data), len(train_loader.dataset),
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
+        if (mc < 10) and (beta==betas[0]):
+            valid_sum_se = 0
+            for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
+                valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
+                valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                valid_sum_se += MSEloss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
+            valid_mse += [valid_sum_se/len(valid_loader.dataset)]
+            training_mse += [training_sum_se/len(train_loader.dataset)]
 
         # epoch logging
-        print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(
-            correct, len(train_loader.dataset),
-            100. * correct / len(train_loader.dataset)))
+        if args.dataset == 'lr_synthetic':
+            print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(
+                correct, len(train_loader.dataset),
+                100. * correct / len(train_loader.dataset)))
+        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+            print('\nTrain set: MSE: {} \n'.format(training_sum_se/len(train_loader.dataset)))
+
+    if (mc <10) and (beta==betas[0]):
+        fig = plt.figure(figsize=(10, 7))
+        lines1 = plt.plot(list(range(0, args.epochs)), training_mse,
+                          list(range(0, args.epochs)), valid_mse)
+        plt.legend(('training mse', 'validation mse'), loc='upper right', fontsize=16)
+        plt.xlabel('epoch number', fontsize=16)
+        plt.title('training validation mse', fontsize=18)
+        fig.savefig('./result/training_validation_mse_MC%s.png'%(mc))
+        plt.close(fig)
 
     return G
 
@@ -289,8 +319,8 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
                 nll_new = F.nll_loss(logsoftmax_output, target, reduction="sum")
             elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                mean = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                nll_new = MSEloss(mean, target)
+                output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                nll_new = MSEloss(output, target)
 
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
@@ -318,7 +348,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
-def approxinf_nll(train_loader, test_loader, input_dim, output_dim, args, beta):
+def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta, betas):
 
     model, w_dim = retrieve_model(args,input_dim,output_dim)
     args.w_dim = w_dim
@@ -327,7 +357,7 @@ def approxinf_nll(train_loader, test_loader, input_dim, output_dim, args, beta):
 
     if args.VItype == 'implicit':
 
-        G = train_implicitVI(train_loader, args, beta)
+        G = train_implicitVI(train_loader, valid_loader, args, mc, beta, betas)
 
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -362,11 +392,11 @@ def lambda_thm4(betas, args, kwargs):
         print('Starting MC {}'.format(mc))
         # draw new training-testing split
 
-        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+        train_loader, valid_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
 
         temperedNLL_perMC_perBeta = np.empty(0)
         for beta in betas:
-            temp, _ = approxinf_nll(train_loader, test_loader, input_dim, output_dim, args, beta)
+            temp, _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta, betas)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         # least squares fit for lambda
@@ -460,10 +490,15 @@ def lambda_cor3(betas, args, kwargs):
 
 
 def main():
+    if not os.path.exists('./result'):
+        os.makedirs('./result')
+
     random.seed()
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
+    parser.add_argument('--taskid', type=int, default=0,
+                        help='taskid from sbatch')
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'])
@@ -586,11 +621,11 @@ def main():
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
-        input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
+        input_dim = int(np.power(args.syntheticsamplesize*0.8, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
     elif args.dataset == '3layertanh_synthetic':
-        H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
+        H = int(np.power(args.syntheticsamplesize*0.8, args.dpower)*0.5) #number of hidden unit
         args.H = H
         args.a_params = torch.zeros([1, H], dtype=torch.float32)
         args.b_params = torch.zeros([H, 1], dtype=torch.float32)
@@ -600,7 +635,7 @@ def main():
     elif args.dataset == 'reducedrank_synthetic':
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
-        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize, args.dpower)))/4)
+        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.8, args.dpower)))/4)
         H = output_dim
         input_dim = output_dim + 3
         args.H = H
@@ -611,7 +646,7 @@ def main():
         true_RLCT = (output_dim * H - H * H + input_dim * H)/2  # rank r = H for the 'reducedrank_synthetic' dataset
 
     # draw a training-testing split just to get some necessary parameters
-    train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+    train_loader, valid_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
     args.input_dim = input_dim
     args.output_dim = output_dim
@@ -633,14 +668,14 @@ def main():
 
         RLCT_estimates_OLS, RLCT_estimates_GLS = lambda_thm4(betas, args, kwargs)
         results = dict({
-            "d on 2": w_dim / 2,
-            "RLCT_estimates (OLS)": RLCT_estimates_OLS,
-            "RLCT_estimates (GLS)": RLCT_estimates_GLS,
-            "mean of RLCT_estimates (OLS)": RLCT_estimates_OLS.mean(),
-            "mean of RLCT_estimates (GLS)": RLCT_estimates_GLS.mean(),
-            "abs deviation of average RLCT estimate (OLS) from d on 2": np.abs(RLCT_estimates_OLS.mean() - w_dim / 2),
-            "abs deviation of average RLCT estimate (GLS) from d on 2": np.abs(RLCT_estimates_GLS.mean() - w_dim / 2),
-            "true RLCT": true_RLCT
+            "true_RLCT": true_RLCT,
+            "RLCT_estimates_OLS": RLCT_estimates_OLS,
+            "RLCT_estimates_GLS": RLCT_estimates_GLS,
+            "mean_of_RLCT_estimates_OLS": RLCT_estimates_OLS.mean(),
+            "std_of_RLCT_estimates_OLS": RLCT_estimates_OLS.std(),
+            "mean_of_RLCT_estimates_GLS": RLCT_estimates_GLS.mean(),
+            "std_of_RLCT_estimates_GLS": RLCT_estimates_GLS.std(),
+            "d_on_2": w_dim/2
         })
 
     elif args.lambda_asymptotic == 'thm4_average':
@@ -663,6 +698,7 @@ def main():
             "average RLCT estimate": RLCT_estimates.mean(),
             "abs deviation of RLCT estimate from d on 2": np.abs(RLCT_estimates.mean() - w_dim/2)})
 
+    pd.DataFrame.from_dict(results).to_csv('./result/RLCTestimate_taskid%s.csv'%(args.taskid))
 
     print(results)
     if args.wandb_on:

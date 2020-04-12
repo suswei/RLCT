@@ -115,6 +115,7 @@ def main(taskid):
     dpower = value[13]
 
     os.system(("python3 main.py "
+              "--taskid %s "
               "--dataset %s "
               "--syntheticsamplesize %s "
               "--VItype %s "
@@ -129,7 +130,7 @@ def main(taskid):
               "--betasbegin %s "
               "--betasend %s "
               "--betalogscale %s "
-              "--dpower %s ")%(dataset, syntheticsamplesize, VItype, network, epochs, batchsize, n_hidden_G, num_hidden_layers_G, n_hidden_D, num_hidden_layers_D, lambda_asymptotic, betasbegin, betasend, betalogscale, dpower))
+              "--dpower %s ")%(taskid, dataset, syntheticsamplesize, VItype, network, epochs, batchsize, n_hidden_G, num_hidden_layers_G, n_hidden_D, num_hidden_layers_D, lambda_asymptotic, betasbegin, betasend, betalogscale, dpower))
 
 if __name__ == "__main__":
     main(sys.argv[1:])
