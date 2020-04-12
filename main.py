@@ -177,26 +177,27 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                         epoch, batch_idx * len(data), len(train_loader.dataset),
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
         if (mc < 10) and (beta==betas[0]) and (args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']):
-            D.eval()
-            valid_sum_se = 0
-            for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
-                valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
-                if args.dataset == '3layertanh_synthetic':
-                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
-                else:
-                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
-                valid_sum_se += args.loss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-            valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
+            with torch.no_grad(): #to save memory, no intermediate activations used for activation calculation is stored.
+                D.eval()
+                valid_sum_se = 0
+                for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
+                    valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
+                    if args.dataset == '3layertanh_synthetic':
+                       valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                    else:
+                       valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
+                    valid_sum_se += args.loss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
+                valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
 
-            train_sum_se = 0
-            for train_batch_id, (train_data, train_target) in enumerate(train_loader):
-                train_data, train_target = load_minibatch(args, train_data, train_target)
-                if args.dataset == '3layertanh_synthetic':
-                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
-                else:
-                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
-                train_sum_se += args.loss(train_output, train_target).detach().cpu().numpy() * len(train_target)
-            train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
+                train_sum_se = 0
+                for train_batch_id, (train_data, train_target) in enumerate(train_loader):
+                    train_data, train_target = load_minibatch(args, train_data, train_target)
+                    if args.dataset == '3layertanh_synthetic':
+                        train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
+                    else:
+                        train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
+                    train_sum_se += args.loss(train_output, train_target).detach().cpu().numpy() * len(train_target)
+                train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
 
         # epoch logging
         if args.dataset == 'lr_synthetic':
@@ -210,10 +211,10 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
         fig = plt.figure(figsize=(10, 7))
         lines1 = plt.plot(list(range(0, args.epochs)), train_loss,
                           list(range(0, args.epochs)), valid_loss)
-        plt.legend(('training mse', 'validation mse'), loc='upper right', fontsize=16)
+        plt.legend(('training loss', 'validation loss'), loc='upper right', fontsize=16)
         plt.xlabel('epoch number', fontsize=16)
-        plt.title('training validation mse', fontsize=18)
-        fig.savefig('./result/training_validation_mse_MC%s.png'%(mc))
+        plt.title('training validation loss', fontsize=18)
+        fig.savefig('./result/training_validation_loss_MC%s.png'%(mc))
         plt.close(fig)
 
     return G
@@ -412,7 +413,7 @@ def lambda_thm4(betas, args, kwargs):
         print('Starting MC {}'.format(mc))
         # draw new training-testing split
 
-        train_loader, valid_loader, test_loader, input_dim, output_dim, loss = get_dataset_by_id(args, kwargs)
+        train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
 
         temperedNLL_perMC_perBeta = np.empty(0)
         for beta in betas:
@@ -641,21 +642,19 @@ def main():
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
-        input_dim = int(np.power(args.syntheticsamplesize*0.8, args.dpower))
+        input_dim = int(np.power(args.syntheticsamplesize*0.7, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
     elif args.dataset == '3layertanh_synthetic':
-        H = int(np.power(args.syntheticsamplesize*0.8, args.dpower)*0.5) #number of hidden unit
+        H = int(np.power(args.syntheticsamplesize*0.7, args.dpower)*0.5) #number of hidden unit
         args.H = H
         args.a_params = torch.zeros([1, H], dtype=torch.float32)
         args.b_params = torch.zeros([H, 1], dtype=torch.float32)
 
-        max_integer = int(math.sqrt(args.H))
-        true_RLCT = (H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
     elif args.dataset == 'reducedrank_synthetic':
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
-        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.8, args.dpower)))/4)
+        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.7, args.dpower)))/4)
         H = output_dim
         input_dim = output_dim + 3
         args.H = H
@@ -663,10 +662,8 @@ def main():
         args.b_params = torch.eye(output_dim)
         #in this case, the rank r for args.a_params * args.b_params is H, output_dim + H < input_dim + r is satisfied
 
-        true_RLCT = (output_dim * H - H * H + input_dim * H)/2  # rank r = H for the 'reducedrank_synthetic' dataset
-
     # draw a training-testing split just to get some necessary parameters
-    train_loader, valid_loader, test_loader, input_dim, output_dim, loss = get_dataset_by_id(args, kwargs)
+    train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
     args.input_dim = input_dim
     args.output_dim = output_dim
