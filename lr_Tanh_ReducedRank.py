@@ -7,7 +7,7 @@ def main(taskid):
     # dataset_num = int(taskid[0])
     #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
-    taskid = int(taskid)
+    taskid = int(taskid[0])
     if taskid in range(54):
         index = 1
         hyperparameter_config = {
