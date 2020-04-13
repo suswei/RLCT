@@ -88,6 +88,7 @@ def get_dataset_by_id(args,kwargs):
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
+        #The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15 * args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size
@@ -125,6 +126,7 @@ def get_dataset_by_id(args,kwargs):
 
         y = y_rv.sample()
 
+        # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15*args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size
@@ -149,6 +151,7 @@ def get_dataset_by_id(args,kwargs):
 
         y = y_rv.sample()
 
+        # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15 * args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size

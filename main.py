@@ -135,7 +135,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
             # opt generator
             eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
             w_sampled_from_G = G(eps)
-
             # for fixed minibatch of size b, reconstr_err approximates
             # E_\epsilon frac{1}{b} \sum_{i=b}^b -log p(y_i|x_i, G(epsilon)) with args.epsilon_mc realisations
             reconstr_err = 0
@@ -176,19 +175,21 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                     'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
                         epoch, batch_idx * len(data), len(train_loader.dataset),
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
-        if (mc < 10) and (beta==betas[0]) and (args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']):
-            with torch.no_grad(): #to save memory, no intermediate activations used for activation calculation is stored.
-                D.eval()
-                valid_sum_se = 0
-                for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
-                    valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
-                    if args.dataset == '3layertanh_synthetic':
-                       valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
-                    else:
-                       valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
-                    valid_sum_se += args.loss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-                valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
 
+        with torch.no_grad(): #to save memory, no intermediate activations used for activation calculation is stored.
+            D.eval()
+            valid_sum_se = 0
+            for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
+                valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
+                if args.dataset == '3layertanh_synthetic':
+                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                else:
+                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
+                valid_sum_se += args.loss(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
+            valid_mean_loss = valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))
+            valid_loss += [valid_mean_loss]
+
+            if (mc < 10) and (beta == betas[0]) and (args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']):
                 train_sum_se = 0
                 for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                     train_data, train_target = load_minibatch(args, train_data, train_target)
@@ -198,6 +199,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta, betas):
                         train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
                     train_sum_se += args.loss(train_output, train_target).detach().cpu().numpy() * len(train_target)
                 train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (beta * len(train_loader.dataset))]
+
+        scheduler_G.step(valid_mean_loss)
 
         # epoch logging
         if args.dataset == 'lr_synthetic':
