@@ -7,8 +7,8 @@ def main(taskid):
     # dataset_num = int(taskid[0])
     #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
-    taskid = int(taskid[0])
-    if taskid in range(81):
+    taskid = int(taskid)
+    if taskid in range(54):
         index = 1
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
@@ -27,10 +27,10 @@ def main(taskid):
             'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
             'MCs': [2],
             'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.01, 0.005, 0.001]
+            'lr_primal': [0.01, 0.005, 0.001],
+            'lr_dual': [0.005, 0.001]
         }
-    elif (taskid-81) in range(81):
+    elif (taskid-54) in range(54):
         index = 2
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
@@ -49,10 +49,10 @@ def main(taskid):
             'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
             'MCs': [2],
             'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.01, 0.005, 0.001]
+            'lr_primal': [0.01, 0.005, 0.001],
+            'lr_dual': [0.005, 0.001]
         }
-    elif (taskid - 81 - 81) in range(81):
+    elif (taskid - 54 - 54) in range(54):
         index = 3
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network ReducedRankRegression --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
@@ -71,10 +71,10 @@ def main(taskid):
             'dpower': [2/5],
             'MCs': [2],
             'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.01, 0.005, 0.001]
+            'lr_primal': [0.01, 0.005, 0.001],
+            'lr_dual': [0.005, 0.001]
         }
-    elif (taskid - 81 - 81 - 81) in range(81):
+    elif (taskid - 54 - 54 - 54) in range(54):
         index = 4
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
@@ -93,8 +93,8 @@ def main(taskid):
             'dpower': [2/5], #1/5, 2/5, 3/5
             'MCs': [2],
             'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.01, 0.005, 0.001]
+            'lr_primal': [0.01, 0.005, 0.001],
+            'lr_dual': [0.005, 0.001]
         }
 
     keys, values = zip(*hyperparameter_config.items())
@@ -103,11 +103,11 @@ def main(taskid):
     if index == 1:
         i = taskid
     elif index == 2:
-        i = taskid - 81
+        i = taskid - 54
     elif index == 3:
-        i = taskid - 81 - 81
+        i = taskid - 54 - 54
     elif index == 4:
-        i = taskid - 81 - 81 - 81
+        i = taskid - 54 - 54 - 54
     key, value = zip(*hyperparameter_experiments[i].items())
     dataset = value[0]
     if dataset == 'lr_synthetic':
