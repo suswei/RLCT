@@ -154,8 +154,8 @@ def main(taskid):
               "--dpower %s "
               "--MCs %s "
               "--R %s "
-              "lr_primal %s "
-              "lr_dual %s ")%(taskid, dataset, syntheticsamplesize, VItype, network, epochs, batchsize, betasbegin, betasend, betalogscale, n_hidden_D, num_hidden_layers_D, n_hidden_G, num_hidden_layers_G, lambda_asymptotic, dpower, MCs, R, lr_primal, lr_dual))
+              "--lr_primal %s "
+              "--lr_dual %s ")%(taskid, dataset, syntheticsamplesize, VItype, network, epochs, batchsize, betasbegin, betasend, betalogscale, n_hidden_D, num_hidden_layers_D, n_hidden_G, num_hidden_layers_G, lambda_asymptotic, dpower, MCs, R, lr_primal, lr_dual))
 
 if __name__ == "__main__":
     main(sys.argv[1:])
