@@ -7,7 +7,6 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, SubsetRandomSampler
 from torch import Tensor
 import torch.nn.functional as F
-import numpy as np
 import math
 from torch.distributions.uniform import Uniform
 from torch.distributions.normal import Normal
@@ -111,7 +110,6 @@ def get_dataset_by_id(args,kwargs):
         # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
         # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-    # TODO: (HUI) finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         # what Watanabe calls three-layered neural network is actually one hidden layer
@@ -140,7 +138,7 @@ def get_dataset_by_id(args,kwargs):
 
         max_integer = int(math.sqrt(args.H))
         true_RLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
-    # TODO (HUI)
+
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = m.sample(torch.Size([args.syntheticsamplesize]))
@@ -164,7 +162,7 @@ def get_dataset_by_id(args,kwargs):
         true_RLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
     else:
         print('Not a valid dataset name. See options in dataset-factory')
-    # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
+
     return train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT
 
 
