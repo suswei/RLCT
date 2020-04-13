@@ -99,7 +99,7 @@ def get_dataset_by_id(args,kwargs):
         valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-        def loss(logsoftmax_output, target):
+        def loss_criterion(logsoftmax_output, target):
             loss_value = F.nll_loss(logsoftmax_output, target, reduction="mean")
             return loss_value
 
@@ -138,7 +138,7 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
-        loss = nn.MSELoss(reduction='mean')
+        loss_criterion = nn.MSELoss(reduction='mean')
 
         max_integer = int(math.sqrt(args.H))
         true_RLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
@@ -163,12 +163,12 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
-        loss = nn.MSELoss(reduction='mean')
+        loss_criterion = nn.MSELoss(reduction='mean')
         true_RLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
     else:
         print('Not a valid dataset name. See options in dataset-factory')
     # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
-    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT
+    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, true_RLCT
 
 
 
