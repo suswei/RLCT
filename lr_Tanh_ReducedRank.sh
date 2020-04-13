@@ -4,10 +4,10 @@
 #SBATCH --job-name="binaryLR"
 
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=3
 
 # The maximum running time of the job in days-hours:mins:sec
-#SBATCH --time=0-5:0:00
+#SBATCH --time=1-:0:00
 
 # Batch arrays
 #SBATCH --array=0-323
