@@ -104,7 +104,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         D.zero_grad()
 
     train_loss, valid_loss, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
-    reconstr_err_minibatch, D_err_minibatch = [], []
+    reconstr_err_minibatch, D_err_minibatch, primal_loss_minibatch = [], [], []
 
     # train discriminator and generator together
     for epoch in range(args.epochs):
@@ -161,15 +161,17 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                         output = torch.matmul(torch.matmul(data, a_params), b_params)
                     reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
 
-            loss_primal = reconstr_err / args.epsilon_mc + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index] * args.n)
+            reconstr_err_component = reconstr_err / args.epsilon_mc
+            discriminator_err_component = torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index] * args.n)
+            loss_primal = reconstr_err_component + discriminator_err_component
             loss_primal.backward(retain_graph=True)
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
 
-            if (mc==0):
-                reconstr_err_minibatch += [(reconstr_err / args.epsilon_mc).detach().cpu().numpy()*1]
-                D_err_minibatch += [(torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index] * args.n)).detach().cpu().numpy()*1]
+            reconstr_err_minibatch += [reconstr_err_component.detach().cpu().numpy()*1]
+            D_err_minibatch += [discriminator_err_component.detach().cpu().numpy()*1]
+            primal_loss_minibatch += [loss_primal.detach().cpu().numpy()*1]
 
             # minibatch logging on args.log_interval
             if args.dataset == 'lr_synthetic':
@@ -227,24 +229,27 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 
     plt.figure(figsize=(10, 7))
     plt.plot(list(range(0, args.epochs)), train_loss,
-            list(range(0, args.epochs)), valid_loss,
-            list(range(0, args.epochs)), valid_reconstr_err_epoch,
-            list(range(0, args.epochs)), train_reconstr_err_epoch,
-            list(range(0, args.epochs)), D_err_epoch)
-    plt.legend(('training primal loss', 'validation primal loss', 'valid reconstr err epoch', 'train reconstr err epoch', 'D err epoch'), loc='center right', fontsize=16)
-    plt.xlabel('epoch number', fontsize=16)
+             list(range(0, args.epochs)), valid_loss,
+             list(range(0, args.epochs)), train_reconstr_err_epoch,
+             list(range(0, args.epochs)), valid_reconstr_err_epoch,
+             list(range(0, args.epochs)), D_err_epoch)
+    plt.legend(('primal loss (train)', 'primal loss (validation)', 'reconstr err component (train)', 'reconstr err component (valid)', 'discriminator err component'), loc='center right', fontsize=16)
+    plt.xlabel('epoch', fontsize=16)
     plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
     plt.savefig('./taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.taskid, mc, beta_index))
-    plt.clf()
+    plt.close()
 
     plt.figure(figsize=(10, 7))
     plt.plot(list(range(0, len(reconstr_err_minibatch)))[20:], reconstr_err_minibatch[20:],
-             list(range(0, len(D_err_minibatch)))[20:], D_err_minibatch[20:])
-    plt.legend(('reconstr err minibatch', 'D err minibatch'), loc='upper right', fontsize=16)
-    plt.xlabel('epochs*batches', fontsize=16)
+             list(range(0, len(D_err_minibatch)))[20:], D_err_minibatch[20:],
+             list(range(0, len(D_err_minibatch)))[20:], primal_loss_minibatch[20:]
+    )
+
+    plt.legend(('reconstr err component', 'discriminator err component','primal loss'), loc='upper right', fontsize=16)
+    plt.xlabel('epochs*batches (minibatches)', fontsize=16)
     plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
     plt.savefig('./taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.taskid, mc, beta_index))
-    plt.clf()
+    plt.close()
 
     return G
 
@@ -406,7 +411,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
         plt.suptitle('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=40)
         plt.savefig('./taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.taskid, mc, beta_index))
-        plt.clf()
+        plt.close()
 
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -438,6 +443,10 @@ def lambda_thm4(args, kwargs):
 
     for mc in range(0, args.MCs):
 
+        path = './taskid{}/img/mc{}'.format(args.taskid, mc)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
         print('Starting MC {}'.format(mc))
         # draw new training-testing split
 
@@ -460,7 +469,7 @@ def lambda_thm4(args, kwargs):
             plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
             plt.savefig('./taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
 
-            plt.clf()
+            plt.close()
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
 
@@ -508,7 +517,6 @@ def lambda_thm4average(args, kwargs):
     plt.title("multiple MC realisation")
     plt.xlabel("1/beta")
     plt.ylabel("implicit VI estimate of E_{D_n} E^beta_w [nL_n(w)]")
-    plt.show()
     RLCT_estimate_OLS, RLCT_estimate_GLS = lsfit_lambda(temperedNLL_perMC_perBeta, args.betas)
 
     # each RLCT estimate is one elment array
@@ -544,10 +552,6 @@ def lambda_cor3(args, kwargs):
 
 def main():
 
-    if not os.path.exists('./result'):
-        os.makedirs('./result')
-    if not os.path.exists('./img'):
-        os.makedirs('./img')
 
     random.seed()
 
@@ -754,15 +758,14 @@ def main():
             "std RLCT estimates": RLCT_estimates.std()
         })
 
-    pd.DataFrame.from_dict(results).to_csv('./taskid%s/result/RLCTestimate.csv'%(args.taskid))
+    path = './taskid{}/'.format(args.taskid)
+    if not os.path.exists(path):
+        os.makedirs(path)
+    with open('./taskid{}/configuration_plus_results.pkl'.format(args.taskid), 'wb') as f:
+        pickle.dump(results, f) #TODO: add hyperparamter configuration
 
     print(results)
-    if args.wandb_on:
-        wandb.log(results)
-        f = open("results.pkl", "wb")
-        pickle.dump(results, f)
-        f.close()
-        wandb.save("results.pkl")
+
 
 if __name__ == "__main__":
     main()
