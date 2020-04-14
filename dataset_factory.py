@@ -99,18 +99,8 @@ def get_dataset_by_id(args,kwargs):
         valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-        def loss_criterion(logsoftmax_output, target):
-            loss_value = F.nll_loss(logsoftmax_output, target, reduction="mean")
-            return loss_value
-
+        loss_criterion = nn.NLLLoss(reduction="mean")
         true_RLCT = (input_dim + 1)/2
-        # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
-        #
-        # dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
-        # dataset_test = TensorDataset(Tensor(X_test), torch.as_tensor(y_test, dtype=torch.long))
-        #
-        # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
-        # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
     # TODO: (HUI) finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
@@ -165,9 +155,10 @@ def get_dataset_by_id(args,kwargs):
         output_dim = y.shape[1]
         loss_criterion = nn.MSELoss(reduction='mean')
         true_RLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
+
     else:
         print('Not a valid dataset name. See options in dataset-factory')
-    # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
+
     return train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, true_RLCT
 
 
