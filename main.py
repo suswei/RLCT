@@ -237,7 +237,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         plt.legend(('training primal loss', 'validation primal loss', 'valid reconstr err epoch', 'train reconstr err epoch', 'D err epoch'), loc='center right', fontsize=16)
         plt.xlabel('epoch number', fontsize=16)
         plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-        plt.savefig('./img/primal_loss_betaind{}.png'.format(beta_index))
+        plt.savefig('./img/primal_loss_taskid{}_betaind{}.png'.format(args.taskid, beta_index))
         plt.clf()
 
         plt.figure(figsize=(10, 7))
@@ -246,7 +246,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         plt.legend(('reconstr err minibatch', 'D err minibatch'), loc='upper right', fontsize=16)
         plt.xlabel('epochs*batches', fontsize=16)
         plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
-        plt.savefig('./img/reconsterr_derr_minibatch_betaind{}.png'.format(beta_index))
+        plt.savefig('./img/reconsterr_derr_minibatch_taskid{}_betaind{}.png'.format(args.taskid, beta_index))
         plt.clf()
 
     return G
@@ -430,7 +430,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
             plt.figure(figsize=(16, 10))
             ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
             plt.suptitle('w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=40)
-            plt.savefig('./img/w_sampled_from_G_betaind{}.png'.format(beta_index))
+            plt.savefig('./img/w_sampled_from_G_taskid{}_betaind{}.png'.format(args.taskid, beta_index))
             plt.clf()
 
         my_list = range(args.R)
@@ -483,7 +483,7 @@ def lambda_thm4(args, kwargs):
             plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
             plt.xlabel("1/beta")
             plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
-            plt.savefig('./img/thm4_beta_vs_lhs_mc{}.png'.format(mc))
+            plt.savefig('./img/thm4_beta_vs_lhs_taskid{}_mc{}.png'.format(args.taskid, mc))
             plt.clf()
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))

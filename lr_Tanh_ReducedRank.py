@@ -83,7 +83,7 @@ def main(taskid):
             'epochs': [50, 100, 200],
             'batchsize': [256],
             'betasbegin': [0.1],
-            'betasend': [0.2, 0.5],
+            'betasend': [0.5],
             'betalogscale': ['true'],
             'n_hidden_D': [512],
             'num_hidden_layers_D': [6],
