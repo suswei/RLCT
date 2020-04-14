@@ -80,7 +80,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G, args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
     D_initial = Discriminator(args.w_dim, args.n_hidden_D, args.num_hidden_layers_D)  # D = Discriminator(w_dim).to(args.cuda)
     G = copy.deepcopy(G_initial)
-    print(G)
     D = copy.deepcopy(D_initial)
 
     # optimizers
@@ -105,7 +104,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         G.zero_grad()
         D.zero_grad()
 
-    train_loss, valid_loss = [], []
+    # track primal loss on training and validation set
+    train_primal_loss, valid_primal_loss = [], []
 
     # train discriminator and generator together
     for epoch in range(args.epochs):
@@ -121,6 +121,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 
             # opt discriminator more than generator
             for discriminator_epoch in range(args.trainDepochs):
+
                 w_sampled_from_prior = randn((args.epsilon_mc, args.w_dim), args.cuda)  # TODO: add more options for prior besides hardcoding Gaussian prior
                 eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
@@ -141,8 +142,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             reconstr_err = 0
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
 
-                # TODO: (HUI) this block has to be currently manually designed for each model
                 if args.dataset == 'lr_synthetic':
+
                     A = w_sampled_from_G[i, 0:(args.w_dim - 1)]
                     b = w_sampled_from_G[i, args.w_dim - 1]
                     output = torch.mm(data, A.reshape(args.w_dim - 1, 1)) + b
@@ -150,7 +151,9 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                     logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
                     # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
                     reconstr_err += args.loss_criterion(logsoftmax_output, target)
+
                 elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+
                     a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
                     b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
                     if args.dataset == '3layertanh_synthetic':
@@ -183,48 +186,52 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
             print('\nTrain set: MSE: {} \n'.format(training_sum_se/len(train_loader.dataset)))
 
-        # only do this for one monte carlo realization of the data
-        if (mc == 0):
-            with torch.no_grad(): #to save memory, no intermediate activations used for activation calculation is stored.
-                D.eval()
-                valid_sum_se = 0
-                for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
-                    valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
-                    if args.dataset == '3layertanh_synthetic':
-                       valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
-                    elif args.dataset =='lr_synthetic':
-                        output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
-                        output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
-                        valid_output = F.log_softmax(output_cat_zero, dim=1)
-                    elif args.dataset == 'reducedrank_synthetic':
-                       valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
-                    valid_sum_se += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-                valid_loss += [valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))]
 
-                train_sum_se = 0
-                for train_batch_id, (train_data, train_target) in enumerate(train_loader):
-                    train_data, train_target = load_minibatch(args, train_data, train_target)
-                    if args.dataset == '3layertanh_synthetic':
-                        train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
-                    elif args.dataset == 'lr_synthetic':
-                        output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
-                        output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
-                        train_output = F.log_softmax(output_cat_zero, dim=1)
-                    elif args.dataset == 'reducedrank_synthetic':
-                        train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
-                    train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
-                train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))]
+        # at the end of epoch, calculate primal loss on validation and training datasets
+        with torch.no_grad(): #to save memory, no intermediate activations used for activation calculation is stored.
+            D.eval()
+            valid_sum_se = 0
+            for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
+                valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
+                if args.dataset == 'lr_synthetic':
+                    output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
+                    output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
+                    valid_output = F.log_softmax(output_cat_zero, dim=1)
+                elif args.dataset == '3layertanh_synthetic':
+                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                elif args.dataset == 'reducedrank_synthetic':
+                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
+                valid_sum_se += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
 
+            temp = valid_sum_se/len(valid_loader.dataset)+ torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))
+            valid_primal_loss += [temp]
+            scheduler_G.step(temp)
 
-    if (mc == 0):
-        plt.figure(figsize=(10, 7))
-        plt.plot(list(range(0, args.epochs)), train_loss,
-                          list(range(0, args.epochs)), valid_loss)
-        plt.legend(('training primal loss', 'validation primal loss'), loc='upper right', fontsize=16)
-        plt.xlabel('epoch number', fontsize=16)
-        plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-        plt.savefig('./img/primal_loss_betaind{}.png'.format(beta_index))
-        plt.clf()
+            train_sum_se = 0
+            for train_batch_id, (train_data, train_target) in enumerate(train_loader):
+                train_data, train_target = load_minibatch(args, train_data, train_target)
+                if args.dataset == '3layertanh_synthetic':
+                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
+                elif args.dataset == 'lr_synthetic':
+                    output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
+                    output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
+                    train_output = F.log_softmax(output_cat_zero, dim=1)
+                elif args.dataset == 'reducedrank_synthetic':
+                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
+
+                train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
+
+            train_primal_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))]
+
+    # plot primal loss at the end of training, on both validations et and training set
+    plt.figure(figsize=(10, 7))
+    plt.plot(list(range(0, args.epochs)), train_primal_loss,
+                      list(range(0, args.epochs)), valid_primal_loss)
+    plt.legend(('training primal loss', 'validation primal loss'), loc='upper right', fontsize=16)
+    plt.xlabel('epoch number', fontsize=16)
+    plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
+    plt.savefig('./img/mc{}_primal_loss_betaind{}.png'.format(mc,beta_index))
+    plt.clf()
 
     return G
 
@@ -232,19 +239,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 def train_explicitVI(train_loader, args, beta_index, verbose=True):
 
     # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=args.output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=args.input_dim, output_dim=args.output_dim)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'Tanh':
-        model = models.Tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-    if args.network == 'ReducedRankRegression':
-        model = models.ReducedRankRegression(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-
+    model, _ = retrieve_model(args)
 
     # variationalize model
     var_model_initial = pyvarinf.Variationalize(model)
@@ -273,9 +268,6 @@ def train_explicitVI(train_loader, args, beta_index, verbose=True):
         var_model.cuda()
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
 
-    if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
-        MSEloss = nn.MSELoss(reduction='mean')
-
     # train var_model
     for epoch in range(1, args.epochs + 1):
 
@@ -301,19 +293,16 @@ def train_explicitVI(train_loader, args, beta_index, verbose=True):
             optimizer.zero_grad()
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
-            if args.dataset == 'lr_synthetic':
-                loss_error = F.nll_loss(output, target, reduction="mean")
-            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                loss_error = MSEloss(output, target)
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
-            loss = loss_error + loss_prior  # this is the ELBO
+            reconstr_err = args.loss_criterion(output, target)
+            loss = reconstr_err + loss_prior  # this is the ELBO
             loss.backward()
             optimizer.step()
             if verbose:
                 if batch_idx % args.log_interval == 0:
                     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
                         epoch, batch_idx * len(data), len(train_loader.dataset),
-                        100. * batch_idx / len(train_loader), loss.data.item(), loss_error.data.item(), loss_prior.data.item()))
+                        100. * batch_idx / len(train_loader), loss.data.item(), reconstr_err.data.item(), loss_prior.data.item()))
 
     return var_model
 
@@ -324,6 +313,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
 
     G.eval()
     with torch.no_grad():
+
         eps = randn((1, args.epsilon_dim), args.cuda)
         w_sampled_from_G = G(eps)
         w_dim = w_sampled_from_G.shape[1]
@@ -337,21 +327,18 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            # TODO: (HUI) this block has to be currently manually designed for each model
             data, target = load_minibatch(args, data, target)
             if args.dataset == 'lr_synthetic':
                 output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
                 output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
-                logsoftmax_output = F.log_softmax(output_cat_zero, dim=1)
+                output = F.log_softmax(output_cat_zero, dim=1)
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
-                nll_new = args.loss_criterion(logsoftmax_output, target)*len(target) #sum
             elif args.dataset == '3layertanh_synthetic':
                 output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
-                nll_new = args.loss_criterion(output, target)*len(target) #sum
             elif args.dataset == 'reducedrank_synthetic':
                 output = torch.matmul(torch.matmul(data, a_params), b_params)
-                nll_new = args.loss_criterion(output, target)*len(target) #sum
 
+            nll_new = args.loss_criterion(output, target)*len(target) #sum
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
     return nll.sum()
@@ -380,7 +367,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
 def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index):
 
-    model, w_dim = retrieve_model(args,input_dim,output_dim)
+    model, w_dim = retrieve_model(args)
     args.w_dim = w_dim
     args.epsilon_dim = w_dim
 
@@ -389,32 +376,30 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index)
 
         # visualize generator G
-        if (mc==0):
+        eps = torch.randn(1000,args.epsilon_dim)
+        w_sampled_from_G = G(eps)
+        Gorigin = G(torch.zeros(1,args.epsilon_dim))
+        wplus0 = torch.cat((w_sampled_from_G, Gorigin))
+        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+        tsne_results = tsne.fit_transform(wplus0.detach().numpy())
 
-            eps = torch.randn(1000,args.epsilon_dim)
-            w_sampled_from_G = G(eps)
-            Gorigin = G(torch.zeros(1,args.epsilon_dim))
-            wplus0 = torch.cat((w_sampled_from_G, Gorigin))
-            tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
-            tsne_results = tsne.fit_transform(wplus0.detach().numpy())
+        plt.figure(figsize=(20, 10))
+        sns.scatterplot(tsne_results[0:999,0],tsne_results[0:999,1],
+            palette=sns.color_palette("hls", 10),
+            legend="full",
+            alpha=0.3,
+            label='G(N(0,I))'
+        )
+        plt.scatter(tsne_results[1000,0],tsne_results[1000,1], color='r', marker='o',s=1000,label='G(origin)')
+        plt.legend()
 
-            plt.figure(figsize=(20, 10))
-            sns.scatterplot(tsne_results[0:999,0],tsne_results[0:999,1],
-                palette=sns.color_palette("hls", 10),
-                legend="full",
-                alpha=0.3,
-                label='G(N(0,I))'
-            )
-            plt.scatter(tsne_results[1000,0],tsne_results[1000,1], color='r', marker='o',s=1000,label='G(origin)')
-            plt.legend()
-
-            plt.suptitle('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=40)
-            plt.savefig('./img/w_sampled_from_G_betaind{}.png'.format(beta_index))
-            plt.clf()
+        plt.suptitle('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=40)
+        plt.savefig('./img/mc{}_w_sampled_from_G_betaind{}.png'.format(mc,beta_index))
+        plt.clf()
 
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
-        # approxinf_nlls equals array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
+        # approxinf_nlls returns array [nL_n(w_1^*),\ldots, nL_n(w_R^*)] where w^* is drawn from generator G
         approxinf_nlls = Parallel(n_jobs=num_cores, verbose=0)(
             delayed(approxinf_nll_implicit)(i, train_loader, G, model, args) for i in my_list)
 
@@ -461,7 +446,7 @@ def lambda_thm4(args, kwargs):
             plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
             plt.xlabel("1/beta")
             plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
-            plt.savefig('./img/thm4_beta_vs_lhs_mc{}.png'.format(mc))
+            plt.savefig('./img/_mc{}_thm4_beta_vs_lhs.png'.format(mc))
             plt.clf()
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
@@ -681,16 +666,20 @@ def main():
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
+
         input_dim = int(np.power(args.syntheticsamplesize*0.7, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
+
     elif args.dataset == '3layertanh_synthetic':
+
         H = int(np.power(args.syntheticsamplesize*0.7, args.dpower)*0.5) #number of hidden unit
         args.H = H
         args.a_params = torch.zeros([1, H], dtype=torch.float32)
         args.b_params = torch.zeros([H, 1], dtype=torch.float32)
 
     elif args.dataset == 'reducedrank_synthetic':
+
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
         output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.7, args.dpower)))/4)
@@ -701,7 +690,7 @@ def main():
         args.b_params = torch.eye(output_dim)
         #in this case, the rank r for args.a_params * args.b_params is H, output_dim + H < input_dim + r is satisfied
 
-    # draw a training-testing split just to get some necessary parameters
+    # draw a training-validation-testing split just to get some necessary parameters
     train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, true_RLCT = get_dataset_by_id(args, kwargs)
     args.n = len(train_loader.dataset)
     args.input_dim = input_dim
@@ -709,13 +698,12 @@ def main():
     args.loss_criterion = loss_criterion
     args.trueRLCT = true_RLCT
 
-
     # retrieve model
-    model, w_dim = retrieve_model(args, input_dim, output_dim)
+    model, w_dim = retrieve_model(args)
     args.model = model
     args.w_dim = w_dim
 
-    # sweep betas
+    # set range of betas
     args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
     if args.betalogscale == 'true':
         args.betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)

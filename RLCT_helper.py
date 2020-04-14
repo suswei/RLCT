@@ -15,32 +15,32 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def retrieve_model(args,input_dim,output_dim):
+def retrieve_model(args):
     #M is the input dimension, H is hidden unit number, N is the output dimension for '3layertanh_synthetic' and 'reducedrank_synthetic'
     # retrieve model
     if args.network == 'CNN':
-        model = models.CNN(output_dim=output_dim)
+        model = models.CNN(output_dim=args.output_dim)
         print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=input_dim, output_dim=output_dim)
+        model = models.LogisticRegression(input_dim=args.input_dim, output_dim=args.output_dim)
     if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=input_dim, output_dim=output_dim)
+        model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
         print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'Tanh':
-        model = models.Tanh(input_dim=input_dim, output_dim=output_dim, H=args.H)
+        model = models.Tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
     if args.network == 'ReducedRankRegression':
-        model = models.ReducedRankRegression(input_dim=input_dim, output_dim=output_dim, H=args.H)
+        model = models.ReducedRankRegression(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
 
     # TODO: count parameters automatically
     if args.network == 'logistic':
         if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
-            w_dim = (input_dim + 1)
+            w_dim = (args.input_dim + 1)
         elif args.dataset == 'MNIST':
-            w_dim = (input_dim + 1) * 9 / 2
+            w_dim = (args.input_dim + 1) * 9 / 2
     elif args.network in ['Tanh', 'ReducedRankRegression']:
-        w_dim = (input_dim + output_dim)*args.H
+        w_dim = (args.input_dim + args.output_dim)*args.H
     else:
-        w_dim = count_parameters(model) * (output_dim - 1) / output_dim
+        w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim
 
     return model, w_dim
 
