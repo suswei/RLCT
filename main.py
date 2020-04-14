@@ -785,6 +785,7 @@ def main():
 
     print(results)
 
+    pd.DataFrame.from_dict(results).to_csv('./sanity_check/taskid{}/configuration_plus_results.csv'.format(args.taskid), index=None, header=True)
 
 if __name__ == "__main__":
     main()

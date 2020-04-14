@@ -25,7 +25,7 @@ def main(taskid):
             'num_hidden_layers_G': [2],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
-            'MCs': [2],
+            'MCs': [10],
             'R': [10],
             'lr_primal': [0.05, 0.01, 0.005],
             'lr_dual': [0.005, 0.001]
@@ -47,7 +47,7 @@ def main(taskid):
             'num_hidden_layers_G': [2],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
-            'MCs': [2],
+            'MCs': [10],
             'R': [10],
             'lr_primal': [0.05, 0.01, 0.005],
             'lr_dual': [0.005, 0.001]
@@ -69,7 +69,7 @@ def main(taskid):
             'num_hidden_layers_G': [4],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5],
-            'MCs': [2],
+            'MCs': [10],
             'R': [10],
             'lr_primal': [0.05, 0.01, 0.005],
             'lr_dual': [0.005, 0.001]
@@ -91,7 +91,7 @@ def main(taskid):
             'num_hidden_layers_G': [6],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5], #1/5, 2/5, 3/5
-            'MCs': [2],
+            'MCs': [10],
             'R': [10],
             'lr_primal': [0.05, 0.01, 0.005],
             'lr_dual': [0.005, 0.001]
