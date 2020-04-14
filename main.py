@@ -103,7 +103,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         G.zero_grad()
         D.zero_grad()
 
-
     train_loss, valid_loss, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
     reconstr_err_minibatch, D_err_minibatch = [], []
 
@@ -123,7 +122,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             for discriminator_epoch in range(args.trainDepochs):
 
                 w_sampled_from_prior = randn((args.epsilon_mc, args.w_dim), args.cuda)  # TODO: add more options for prior besides hardcoding Gaussian prior
-
                 eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
                 w_sampled_from_G = G(eps)
                 loss_dual = torch.mean(-F.logsigmoid(D(w_sampled_from_G)) - F.logsigmoid(-D(w_sampled_from_prior)))
@@ -461,6 +459,7 @@ def lambda_thm4(args, kwargs):
             plt.xlabel("1/beta")
             plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
             plt.savefig('./taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
+
             plt.clf()
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
