@@ -736,7 +736,7 @@ def main():
             "mean RLCT estimates (GLS)": RLCT_estimates_GLS.mean(),
             "std RLCT estimates (GLS)": RLCT_estimates_GLS.std(),
             "dataset" : args.dataset,
-            "syntheticsamplesize": args.sytheticsamplesize,
+            "syntheticsamplesize": args.syntheticsamplesize,
             "VItype" : args.VItype,
             "network": args.network,
             "epochs" : args.epochs,
