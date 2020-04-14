@@ -231,10 +231,10 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         plt.figure(figsize=(10, 7))
         plt.plot(list(range(0, args.epochs)), train_loss,
                 list(range(0, args.epochs)), valid_loss,
-                list(range(0, args.epochs)), valid_reconstr_err_epoch,
                 list(range(0, args.epochs)), train_reconstr_err_epoch,
+                list(range(0, args.epochs)), valid_reconstr_err_epoch,
                 list(range(0, args.epochs)), D_err_epoch)
-        plt.legend(('training primal loss', 'validation primal loss', 'valid reconstr err epoch', 'train reconstr err epoch', 'D err epoch'), loc='center right', fontsize=16)
+        plt.legend(('training primal loss', 'validation primal loss', 'train reconstr err epoch', 'valid reconstr err epoch', 'D err epoch'), loc='center right', fontsize=16)
         plt.xlabel('epoch number', fontsize=16)
         plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
         plt.savefig('./img/primal_loss_taskid{}_betaind{}.png'.format(args.taskid, beta_index))
