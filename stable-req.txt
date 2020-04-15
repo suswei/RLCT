@@ -62,7 +62,7 @@ PyYAML==5.3.1
 pyzmq==18.1.1
 requests==2.23.0
 scikit-learn==0.22.2.post1
-scipy==1.4.1
+#scipy==1.4.1
 Send2Trash==1.5.0
 sentry-sdk==0.14.3
 shortuuid==1.0.1
@@ -70,7 +70,7 @@ six==1.14.0
 #sklearn==0.0
 smmap==3.0.1
 statsmodels==0.11.1
-subprocess32==3.5.4
+#subprocess32==3.5.4
 terminado==0.8.3
 testpath==0.4.4
 #torch==1.4.0
