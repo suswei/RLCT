@@ -86,11 +86,11 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
     order = toeplitz(np.arange(betas.__len__()))
     sigma = rho ** order
 
-    if np.linalg.det(sigma)==0:
-        return ols_model.params[1], None
-    else:
+    if np.all(np.linalg.eigvals(sigma) > 0):
         gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
         return ols_model.params[1], gls_model.params[1]
+    else:
+        return ols_model.params[1], None
 
 
 # TODO: this test module was copied from original pyvarinf package, needs to be updated to fit into current framework
