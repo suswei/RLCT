@@ -103,7 +103,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         G.zero_grad()
         D.zero_grad()
 
-    train_loss, valid_loss, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
+    train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
     reconstr_err_minibatch, D_err_minibatch, primal_loss_minibatch = [], [], []
 
     # train discriminator and generator together
@@ -182,14 +182,14 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             if batch_idx % args.log_interval == 0:
                 print(
                     'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
-                        epoch, batch_idx * len(data), len(train_loader.dataset),
+                        epoch, batch_idx * len(data), args.n,
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
         # every epoch, log the following
         if args.dataset == 'lr_synthetic':
-            print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(correct, len(train_loader.dataset), 100. * correct / len(train_loader.dataset)))
+            print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(correct, args.n, 100. * correct / args.n))
         elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            print('\nTrain set: MSE: {} \n'.format(training_sum_se/len(train_loader.dataset)))
+            print('\nTrain set: MSE: {} \n'.format(training_sum_se/args.n))
 
         with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
             D.eval()
@@ -206,11 +206,11 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                 elif args.dataset == 'reducedrank_synthetic':
                    valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
                 valid_sum_err += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-            valid_loss_one = valid_sum_err/len(valid_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))
+            valid_loss_one = valid_sum_err/len(valid_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
-            valid_loss += [valid_loss_one]
+            valid_loss_epoch += [valid_loss_one]
             valid_reconstr_err_epoch += [valid_sum_err/len(valid_loader.dataset)]
-            D_err_epoch += [torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))]
+            D_err_epoch += [torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)]
 
             train_sum_se = 0
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
@@ -224,12 +224,12 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                 elif args.dataset == 'reducedrank_synthetic':
                     train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
                 train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
-            train_loss += [train_sum_se / len(train_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * len(train_loader.dataset))]
-            train_reconstr_err_epoch += [train_sum_se / len(train_loader.dataset)]
+            train_loss_epoch += [train_sum_se / args.n + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)]
+            train_reconstr_err_epoch += [train_sum_se / args.n]
 
     plt.figure(figsize=(10, 7))
-    plt.plot(list(range(0, args.epochs)), train_loss,
-             list(range(0, args.epochs)), valid_loss,
+    plt.plot(list(range(0, args.epochs)), train_loss_epoch,
+             list(range(0, args.epochs)), valid_loss_epoch,
              list(range(0, args.epochs)), train_reconstr_err_epoch,
              list(range(0, args.epochs)), valid_reconstr_err_epoch,
              list(range(0, args.epochs)), D_err_epoch)
@@ -242,7 +242,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     plt.figure(figsize=(10, 7))
     plt.plot(list(range(0, len(reconstr_err_minibatch)))[20:], reconstr_err_minibatch[20:],
              list(range(0, len(D_err_minibatch)))[20:], D_err_minibatch[20:],
-             list(range(0, len(D_err_minibatch)))[20:], primal_loss_minibatch[20:]
+             list(range(0, len(primal_loss_minibatch)))[20:], primal_loss_minibatch[20:]
     )
 
     plt.legend(('reconstr err component', 'discriminator err component','primal loss'), loc='upper right', fontsize=16)
@@ -254,7 +254,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     return G
 
 
-def train_explicitVI(train_loader, args, beta_index, verbose=True):
+def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True):
 
 
     # retrieve model
@@ -286,7 +286,10 @@ def train_explicitVI(train_loader, args, beta_index, verbose=True):
     if args.cuda:
         var_model.cuda()
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
 
+    train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, loss_prior_epoch = [], [], [], [], []
+    reconstr_err_minibatch, loss_prior_minibatch, train_loss_minibatch= [], [], []
     # train var_model
     for epoch in range(1, args.epochs + 1):
 
@@ -317,11 +320,62 @@ def train_explicitVI(train_loader, args, beta_index, verbose=True):
             loss = reconstr_err + loss_prior  # this is the ELBO
             loss.backward()
             optimizer.step()
+
+            reconstr_err_minibatch += [reconstr_err.detach().cpu().numpy() * 1]
+            loss_prior_minibatch += [loss_prior.detach().cpu().numpy() * 1]
+            train_loss_minibatch += [loss.detach().cpu().numpy() * 1]
+
             if verbose:
                 if batch_idx % args.log_interval == 0:
                     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
-                        epoch, batch_idx * len(data), len(train_loader.dataset),
+                        epoch, batch_idx * len(data), args.n,
                         100. * batch_idx / len(train_loader), loss.data.item(), reconstr_err.data.item(), loss_prior.data.item()))
+
+        with torch.no_grad():  # to save memory, no intermediate activations used for gradient calculation is stored.
+            var_model.eval()
+            # valid loss is calculated for all monte carlo as it is used for scheduler_G
+            valid_sum_err = 0
+            for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
+                valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
+                valid_output = var_model(valid_data)
+                valid_sum_err += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy() * len(valid_target)
+            valid_loss_one = valid_sum_err / len(valid_loader.dataset) + var_model.prior_loss() / (args.betas[beta_index] * args.n)
+            scheduler.step(valid_loss_one)
+            valid_loss_epoch += [valid_loss_one]
+            valid_reconstr_err_epoch += [valid_sum_err / len(valid_loader.dataset)]
+            loss_prior_epoch += [var_model.prior_loss() / (args.betas[beta_index] * args.n)]
+
+            train_sum_se = 0
+            for train_batch_id, (train_data, train_target) in enumerate(train_loader):
+                train_data, train_target = load_minibatch(args, train_data, train_target)
+                train_output = var_model(train_data)
+                train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
+            train_loss_epoch += [train_sum_se / args.n + var_model.prior_loss() / (args.betas[beta_index] * args.n)]
+            train_reconstr_err_epoch += [train_sum_se / args.n]
+
+    plt.figure(figsize=(10, 7))
+    plt.plot(list(range(0, args.epochs)), train_loss_epoch,
+             list(range(0, args.epochs)), valid_loss_epoch,
+             list(range(0, args.epochs)), train_reconstr_err_epoch,
+             list(range(0, args.epochs)), valid_reconstr_err_epoch,
+             list(range(0, args.epochs)), loss_prior_epoch)
+    plt.legend(('loss (train)', 'loss (validation)', 'reconstr err component (train)',
+                'reconstr err component (valid)', 'loss prior component'), loc='center right', fontsize=16)
+    plt.xlabel('epoch', fontsize=16)
+    plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
+    plt.savefig('./sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.close()
+
+    plt.figure(figsize=(10, 7))
+    plt.plot(list(range(0, len(reconstr_err_minibatch)))[20:], reconstr_err_minibatch[20:],
+             list(range(0, len(loss_prior_minibatch)))[20:], loss_prior_minibatch[20:],
+             list(range(0, len(train_loss_minibatch)))[20:], train_loss_minibatch[20:])
+
+    plt.legend(('reconstr err component', 'loss prior component', 'loss'), loc='upper right',fontsize=16)
+    plt.xlabel('epochs*batches (minibatches)', fontsize=16)
+    plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
+    plt.savefig('./sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.close()
 
     return var_model
 
@@ -421,7 +475,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
     elif args.VItype == 'explicit':
 
-        var_model = train_explicitVI(train_loader, args, beta_index, verbose=True)
+        var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True)
 
         # form sample object from variational distribution r
         sample = pyvarinf.Sample(var_model=var_model)
@@ -466,7 +520,7 @@ def lambda_thm4(args, kwargs):
             plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
             plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
             plt.xlabel("1/beta")
-            plt.ylabel("implicit VI estimate of E^beta_w [nL_n(w)]")
+            plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
             plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
 
             plt.close()
@@ -557,7 +611,7 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
-    parser.add_argument('--taskid', type=int, default=0,
+    parser.add_argument('--taskid', type=int, default=1000,
                         help='taskid from sbatch')
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
@@ -639,7 +693,7 @@ def main():
     parser.add_argument('--lr_dual', type=float, default=1e-4, metavar='LR',
                         help='dual learning rate (default: 0.01)')
 
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.05, metavar='LR',
                         help='learning rate (default: 0.01)')
 
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -753,7 +807,8 @@ def main():
             "MCs" : args.MCs,
             "R" : args.R,
             "lr_primal" : args.lr_primal,
-            "lr_dual" : args.lr_dual
+            "lr_dual" : args.lr_dual,
+            "lr" : args.lr
         })
 
     elif args.lambda_asymptotic == 'thm4_average':
