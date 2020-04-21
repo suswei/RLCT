@@ -18,10 +18,12 @@ import math
 import pyvarinf
 import models
 from dataset_factory import get_dataset_by_id
-from RLCT_helper import retrieve_model, load_minibatch, randn, lsfit_lambda
+from RLCT_helper import retrieve_model, load_minibatch, randn, lsfit_lambda, EarlyStopping
 from sklearn.manifold import TSNE
 import seaborn as sns
 import pandas as pd
+from random import randint
+
 
 
 class Discriminator(nn.Module):
@@ -287,6 +289,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
         var_model.cuda()
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
+    early_stopping = EarlyStopping(patience=10, verbose=True)
 
     train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, loss_prior_epoch = [], [], [], [], []
     reconstr_err_minibatch, loss_prior_minibatch, train_loss_minibatch= [], [], []
@@ -321,9 +324,9 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
             loss.backward()
             optimizer.step()
 
-            reconstr_err_minibatch += [reconstr_err.detach().cpu().numpy() * 1]
-            loss_prior_minibatch += [loss_prior.detach().cpu().numpy() * 1]
-            train_loss_minibatch += [loss.detach().cpu().numpy() * 1]
+            reconstr_err_minibatch.append(reconstr_err.item())
+            loss_prior_minibatch.append(loss_prior.item())
+            train_loss_minibatch.append(loss.item())
 
             if verbose:
                 if batch_idx % args.log_interval == 0:
@@ -334,31 +337,36 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
         with torch.no_grad():  # to save memory, no intermediate activations used for gradient calculation is stored.
             var_model.eval()
             # valid loss is calculated for all monte carlo as it is used for scheduler_G
-            valid_sum_err = 0
+            valid_loss_minibatch = []
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 valid_output = var_model(valid_data)
-                valid_sum_err += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy() * len(valid_target)
-            valid_loss_one = valid_sum_err / len(valid_loader.dataset) + var_model.prior_loss() / (args.betas[beta_index] * args.n)
+                valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
+            valid_loss_one = np.average(valid_loss_minibatch) + var_model.prior_loss() / (args.betas[beta_index] * args.n)
             scheduler.step(valid_loss_one)
-            valid_loss_epoch += [valid_loss_one]
-            valid_reconstr_err_epoch += [valid_sum_err / len(valid_loader.dataset)]
-            loss_prior_epoch += [var_model.prior_loss() / (args.betas[beta_index] * args.n)]
+            valid_loss_epoch.append(valid_loss_one)
+            valid_reconstr_err_epoch.append(np.average(valid_loss_minibatch))
+            loss_prior_epoch.append(var_model.prior_loss() / (args.betas[beta_index] * args.n))
 
-            train_sum_se = 0
+            train_loss_minibatch2 = []
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 train_output = var_model(train_data)
-                train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
-            train_loss_epoch += [train_sum_se / args.n + var_model.prior_loss() / (args.betas[beta_index] * args.n)]
-            train_reconstr_err_epoch += [train_sum_se / args.n]
+                train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
+            train_loss_epoch.append(np.average(train_loss_minibatch2)+var_model.prior_loss() / (args.betas[beta_index] * args.n))
+            train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
+
+        early_stopping(valid_loss_one, var_model)
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
 
     plt.figure(figsize=(10, 7))
-    plt.plot(list(range(0, args.epochs)), train_loss_epoch,
-             list(range(0, args.epochs)), valid_loss_epoch,
-             list(range(0, args.epochs)), train_reconstr_err_epoch,
-             list(range(0, args.epochs)), valid_reconstr_err_epoch,
-             list(range(0, args.epochs)), loss_prior_epoch)
+    plt.plot(list(range(0, len(train_loss_epoch))), train_loss_epoch,
+             list(range(0, len(valid_loss_epoch))), valid_loss_epoch,
+             list(range(0, len(train_reconstr_err_epoch))), train_reconstr_err_epoch,
+             list(range(0, len(valid_reconstr_err_epoch))), valid_reconstr_err_epoch,
+             list(range(0, len(loss_prior_epoch))), loss_prior_epoch)
     plt.legend(('loss (train)', 'loss (validation)', 'reconstr err component (train)',
                 'reconstr err component (valid)', 'loss prior component'), loc='center right', fontsize=16)
     plt.xlabel('epoch', fontsize=16)
@@ -610,7 +618,7 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
-    parser.add_argument('--taskid', type=int, default=1000,
+    parser.add_argument('--taskid', type=int, default=1000+randint(0, 1000),
                         help='taskid from sbatch')
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',

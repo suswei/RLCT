@@ -106,7 +106,7 @@ def main(taskid):
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [1000, 5000, 10000],
             'VItype': ['explicit'],
-            'epochs': [50, 100],
+            'epochs': [500],
             'batchsize': [0],
             'betasbegin': [0.1],
             'betasend': [0],
@@ -116,7 +116,7 @@ def main(taskid):
             'n_hidden_G': [0],
             'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
-            'dpower': [2/5], #1/5, 2/5, 3/5
+            'dpower': [2/5, 4/5], #1/5, 2/5, 3/5
             'MCs': [10],
             'R': [10],
             'lr_primal': [0],
