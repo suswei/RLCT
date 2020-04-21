@@ -171,9 +171,9 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             G.zero_grad()
             D.zero_grad()
 
-            reconstr_err_minibatch += [reconstr_err_component.detach().cpu().numpy()*1]
-            D_err_minibatch += [discriminator_err_component.detach().cpu().numpy()*1]
-            primal_loss_minibatch += [loss_primal.detach().cpu().numpy()*1]
+            reconstr_err_minibatch.append(reconstr_err_component.item())
+            D_err_minibatch.append(discriminator_err_component.item())
+            primal_loss_minibatch.append(loss_primal.item())
 
             # minibatch logging on args.log_interval
             if args.dataset == 'lr_synthetic':
@@ -196,7 +196,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
             D.eval()
             #valid loss is calculated for all monte carlo as it is used for scheduler_G
-            valid_sum_err = 0
+            valid_loss_minibatch = []
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 if args.dataset == '3layertanh_synthetic':
@@ -207,14 +207,14 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                     valid_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
                    valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
-                valid_sum_err += args.loss_criterion(valid_output, valid_target).detach().cpu().numpy()*len(valid_target)
-            valid_loss_one = valid_sum_err/len(valid_loader.dataset) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
+                valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
+            valid_loss_one = np.average(valid_loss_minibatch) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
-            valid_loss_epoch += [valid_loss_one]
-            valid_reconstr_err_epoch += [valid_sum_err/len(valid_loader.dataset)]
-            D_err_epoch += [torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)]
+            valid_loss_epoch.append(valid_loss_one)
+            valid_reconstr_err_epoch.append(np.average(valid_loss_minibatch))
+            D_err_epoch.append(torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
 
-            train_sum_se = 0
+            train_loss_minibatch2 = []
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 if args.dataset == '3layertanh_synthetic':
@@ -225,9 +225,9 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                     train_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
                     train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
-                train_sum_se += args.loss_criterion(train_output, train_target).detach().cpu().numpy() * len(train_target)
-            train_loss_epoch += [train_sum_se / args.n + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)]
-            train_reconstr_err_epoch += [train_sum_se / args.n]
+                train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
+            train_loss_epoch.append(np.average(train_loss_minibatch2) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
+            train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
 
     plt.figure(figsize=(10, 7))
     plt.plot(list(range(0, args.epochs)), train_loss_epoch,
@@ -486,7 +486,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True)
 
         # form sample object from variational distribution r
-        sample = pyvarinf.Sample(var_model=var_model)
+        sample, weight = pyvarinf.Sample(var_model=var_model)
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -528,7 +528,7 @@ def lambda_thm4(args, kwargs):
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
 
         plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
-        plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
+        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT))
         plt.xlabel("1/beta")
         plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
         plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
