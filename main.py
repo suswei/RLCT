@@ -513,19 +513,18 @@ def lambda_thm4(args, kwargs):
 
         # least squares fit for lambda
         ols, gls = lsfit_lambda(temperedNLL_perMC_perBeta, args.betas)
-        if gls != None:
-            RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
-            RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
-            plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
-            plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
-            plt.xlabel("1/beta")
-            plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
-            plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
-
-            plt.close()
+        RLCT_estimates_GLS = np.append(RLCT_estimates_GLS, gls)
+        RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
         print("RLCT GLS: {}".format(RLCT_estimates_GLS))
+
+        plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
+        plt.title("Thm 4, one MC realisation: hat lambda = {:.2f}, true lambda = {:.2f}".format(gls, args.trueRLCT))
+        plt.xlabel("1/beta")
+        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
+        plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
+        plt.close()
 
         if args.wandb_on:
             import wandb
@@ -693,7 +692,7 @@ def main():
     parser.add_argument('--lr_dual', type=float, default=1e-4, metavar='LR',
                         help='dual learning rate (default: 0.01)')
 
-    parser.add_argument('--lr', type=float, default=0.05, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
 
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -787,8 +786,8 @@ def main():
             "RLCT estimates (GLS)": RLCT_estimates_GLS,
             "mean RLCT estimates (OLS)": RLCT_estimates_OLS.mean(),
             "std RLCT estimates (OLS)": RLCT_estimates_OLS.std(),
-            "mean RLCT estimates (GLS)": RLCT_estimates_GLS.mean(),
-            "std RLCT estimates (GLS)": RLCT_estimates_GLS.std(),
+            "mean RLCT estimates (GLS)": np.nanmean(RLCT_estimates_GLS),
+            "std RLCT estimates (GLS)": np.nanstd(RLCT_estimates_GLS),
             "dataset" : args.dataset,
             "syntheticsamplesize": args.syntheticsamplesize,
             "VItype" : args.VItype,

@@ -90,7 +90,7 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
         gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
         return ols_model.params[1], gls_model.params[1]
     else:
-        return ols_model.params[1], None
+        return ols_model.params[1], np.nan
 
 
 # TODO: this test module was copied from original pyvarinf package, needs to be updated to fit into current framework
