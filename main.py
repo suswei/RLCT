@@ -487,6 +487,20 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
         # form sample object from variational distribution r
         sample = pyvarinf.Sample(var_model=var_model)
+
+        '''
+        for draw_index in range(1000):
+            sample.draw()
+            weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
+            bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
+            weight = weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() *weight_mean_rho_eps.eps
+            bias = bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() *bias_mean_rho_eps.eps
+            print(weight)
+            print(weight.shape)
+            print(args.w_dim)
+            print(bias)
+            print(bias.shape)
+        '''
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -620,7 +634,7 @@ def main():
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     parser.add_argument('--taskid', type=int, default=1000+randint(0, 1000),
                         help='taskid from sbatch')
-    parser.add_argument('--dataset', type=str, default='lr_synthetic',
+    parser.add_argument('--dataset', type=str, default='3layertanh_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'])
 

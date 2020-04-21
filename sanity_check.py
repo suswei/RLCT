@@ -117,7 +117,7 @@ def main(taskid):
             'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5
-            'MCs': [10],
+            'MCs': [100],
             'R': [10],
             'lr_primal': [0],
             'lr_dual': [0],

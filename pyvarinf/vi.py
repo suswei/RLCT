@@ -61,7 +61,6 @@ def rebuild_parameters(dico, module, epsilon_setting):
         else:
             rebuild_parameters(p, getattr(module, name), epsilon_setting)
 
-
 def prior_std(p):
     """ Compute a reasonable prior standard deviation for parameter p.
 
@@ -401,4 +400,5 @@ class Sample(nn.Module):
             return 1
         rebuild_parameters(self.var_model.dico, self.var_model.model,
                            _epsilon_setting)
+
         return self.var_model.model(*inputs)
