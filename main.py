@@ -486,7 +486,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True)
 
         # form sample object from variational distribution r
-        sample, weight = pyvarinf.Sample(var_model=var_model)
+        sample = pyvarinf.Sample(var_model=var_model)
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
