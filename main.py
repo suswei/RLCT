@@ -453,6 +453,11 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
     args.epsilon_dim = w_dim
     args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
 
+    if args.dataset == 'lr_synthetic':
+        true_weight = torch.cat((args.w_0.reshape(1, args.input_dim), args.b.reshape(1, 1)), 1)
+    elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+        true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
+
     if args.VItype == 'implicit':
 
         G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index)
@@ -460,10 +465,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         # visualize generator G
         eps = torch.randn(1000,args.epsilon_dim)
         w_sampled_from_G = G(eps)
-        if args.dataset == 'lr_synthetic':
-            true_weight =  torch.cat((args.w_0.reshape(1, args.input_dim), args.b.reshape(1, 1)), 1)
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-           true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
+
         sampled_true_w = torch.cat((w_sampled_from_G, true_weight), 0)
         tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
         tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
@@ -488,19 +490,43 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         # form sample object from variational distribution r
         sample = pyvarinf.Sample(var_model=var_model)
 
-        '''
+        sampled_weight_bias = torch.empty((0, args.w_dim))
         for draw_index in range(1000):
             sample.draw()
-            weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
-            bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
-            weight = weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() *weight_mean_rho_eps.eps
-            bias = bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() *bias_mean_rho_eps.eps
-            print(weight)
-            print(weight.shape)
-            print(args.w_dim)
-            print(bias)
-            print(bias.shape)
-        '''
+            if args.dataset == 'lr_synthetic':
+                weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
+                bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
+                weight = (weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() * weight_mean_rho_eps.eps)[0,:].reshape(1, weight_mean_rho_eps.mean.shape[1]) #there are two probability output for each category, we only need the parameters for one category
+                bias = (bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() * bias_mean_rho_eps.eps)[0].reshape(1,1)
+                weight_bias = torch.cat((weight, bias), 1)
+                sampled_weight_bias = torch.cat((sampled_weight_bias, weight_bias),0)
+
+            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+                layer1_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
+                layer1_bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
+                layer2_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[1].values())[0]
+                layer2_bias_mean_rho_eps = list(list(sample.var_model.dico.values())[1].values())[1]
+                layer1_weight = layer1_weight_mean_rho_eps.mean + (1 + layer1_weight_mean_rho_eps.rho.exp()).log() *layer1_weight_mean_rho_eps.eps #H * input_dim
+                layer1_bias = (layer1_bias_mean_rho_eps.mean + (1 + layer1_bias_mean_rho_eps.rho.exp()).log() *layer1_bias_mean_rho_eps.eps).reshape(layer1_weight.shape[0],1) #H * 1
+                layer1_weight_bias = torch.cat((layer1_weight, layer1_bias),1)
+                layer2_weight = layer2_weight_mean_rho_eps.mean + (1 + layer2_weight_mean_rho_eps.rho.exp()).log() *layer2_weight_mean_rho_eps.eps # output_dim * H
+                layer2_bias = (layer2_bias_mean_rho_eps.mean + (1 + layer2_bias_mean_rho_eps.rho.exp()).log() * layer2_bias_mean_rho_eps.eps).reshape(layer2_weight.shape[0],1) #output * 1
+                layer2_weight_bias = torch.cat((layer2_weight, layer2_bias),1)
+
+                weight_bias = torch.cat((layer1_weight_bias.reshape(1, (layer1_weight_bias.shape[0] * layer1_weight_bias.shape[1])), layer2_weight_bias.reshape(1, (layer2_weight_bias.shape[0] * layer2_weight_bias.shape[1]))), 1)
+                sampled_weight_bias = torch.cat((sampled_weight_bias, weight_bias),0)
+
+        sampled_true_w = torch.cat((sampled_weight_bias, true_weight), 0)
+        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+        tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
+        tsne_results = pd.DataFrame(tsne_results, columns=['dim%s' % (dim_index) for dim_index in [1, 2]])
+        tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled'] * (tsne_results.shape[0] - 1) + ['true']})], axis=1)
+        plt.figure(figsize=(16, 10))
+        ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
+        plt.suptitle('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=40)
+        plt.savefig('./sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.taskid, mc, beta_index))
+        plt.close()
+
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -634,7 +660,7 @@ def main():
     parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
     parser.add_argument('--taskid', type=int, default=1000+randint(0, 1000),
                         help='taskid from sbatch')
-    parser.add_argument('--dataset', type=str, default='3layertanh_synthetic',
+    parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'])
 
@@ -765,8 +791,8 @@ def main():
 
         H = int(np.power(args.syntheticsamplesize*0.7, args.dpower)*0.5) #number of hidden unit
         args.H = H
-        args.a_params = torch.zeros([1, H], dtype=torch.float32)
-        args.b_params = torch.zeros([H, 1], dtype=torch.float32)
+        args.a_params = torch.zeros([1, H], dtype=torch.float32) # H * (input_dim + 1)
+        args.b_params = torch.zeros([H, 1], dtype=torch.float32) # output_dim * (H + 1)
 
     elif args.dataset == 'reducedrank_synthetic':
 
@@ -776,8 +802,8 @@ def main():
         H = output_dim
         input_dim = output_dim + 3
         args.H = H
-        args.a_params = torch.cat((torch.eye(H),torch.ones([input_dim-H, H],dtype=torch.float32)), 0)
-        args.b_params = torch.eye(output_dim)
+        args.a_params = torch.cat((torch.eye(H),torch.ones([input_dim-H, H],dtype=torch.float32)), 0) # H * (input_dim + 1)
+        args.b_params = torch.eye(output_dim) # output_dim * (H + 1)
         #in this case, the rank r for args.a_params * args.b_params is H, output_dim + H < input_dim + r is satisfied
 
     # draw a training-validation-testing split just to get some necessary parameters

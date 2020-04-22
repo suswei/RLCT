@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 import torch.nn.functional as F
 
 class CNN(nn.Module):
@@ -50,7 +51,7 @@ class Tanh(nn.Module):
         self.fc2 = nn.Linear(H, output_dim)
 
     def forward(self, x):
-        x = F.tanh(self.fc1(x))
+        x = torch.tanh(self.fc1(x))
         x = self.fc2(x)
         return x
 
