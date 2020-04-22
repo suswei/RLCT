@@ -39,7 +39,7 @@ nbformat==5.0.4
 notebook==6.0.3
 #numpy==1.18.2
 #nvidia-ml-py3==7.352.0
-#pandas==1.0.3
+pandas==1.0.3
 pandocfilters==1.4.2
 parso==0.6.2
 pathtools==0.1.2
@@ -62,7 +62,7 @@ PyYAML==5.3.1
 pyzmq==18.1.1
 requests==2.23.0
 scikit-learn==0.22.2.post1
-scipy==1.4.1
+#scipy==1.4.1
 Send2Trash==1.5.0
 sentry-sdk==0.14.3
 shortuuid==1.0.1

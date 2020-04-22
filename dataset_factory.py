@@ -88,6 +88,7 @@ def get_dataset_by_id(args,kwargs):
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
+        #The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15 * args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size
@@ -98,18 +99,8 @@ def get_dataset_by_id(args,kwargs):
         valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
-        def loss(logsoftmax_output, target):
-            loss_value = F.nll_loss(logsoftmax_output, target, reduction="mean")
-            return loss_value
-
+        loss_criterion = nn.NLLLoss(reduction="mean")
         true_RLCT = (input_dim + 1)/2
-        # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
-        #
-        # dataset_train = TensorDataset(Tensor(X_train), torch.as_tensor(y_train, dtype=torch.long))
-        # dataset_test = TensorDataset(Tensor(X_test), torch.as_tensor(y_test, dtype=torch.long))
-        #
-        # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
-        # test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
     # TODO: (HUI) finish coding
     elif args.dataset == '3layertanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
@@ -120,11 +111,12 @@ def get_dataset_by_id(args,kwargs):
         X = m.sample(torch.Size([args.syntheticsamplesize]))
 
         # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
+        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params.T)), args.b_params.T)
         y_rv = Normal(mean,1)
 
         y = y_rv.sample()
 
+        # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15*args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size
@@ -136,7 +128,7 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
-        loss = nn.MSELoss(reduction='mean')
+        loss_criterion = nn.MSELoss(reduction='mean')
 
         max_integer = int(math.sqrt(args.H))
         true_RLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
@@ -144,11 +136,12 @@ def get_dataset_by_id(args,kwargs):
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = m.sample(torch.Size([args.syntheticsamplesize]))
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
-        y_rv = MultivariateNormal(mean, torch.eye(args.H))
+        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params.T)), args.b_params.T)
+        y_rv = MultivariateNormal(mean, torch.eye(args.H)) #output_dim equals H
 
         y = y_rv.sample()
 
+        # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = int(0.7 * args.syntheticsamplesize)
         valid_size = int(0.15 * args.syntheticsamplesize)
         test_size = args.syntheticsamplesize - valid_size - train_size
@@ -160,12 +153,13 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
         input_dim = X.shape[1]
         output_dim = y.shape[1]
-        loss = nn.MSELoss(reduction='mean')
+        loss_criterion = nn.MSELoss(reduction='mean')
         true_RLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
+
     else:
         print('Not a valid dataset name. See options in dataset-factory')
-    # TODO: (HUI) return correct loss criterion, .e.g. nll_loss or MSE
-    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT
+
+    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, true_RLCT
 
 
 
