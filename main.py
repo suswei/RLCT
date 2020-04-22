@@ -482,7 +482,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled']*(tsne_results.shape[0]-1) + ['true']})], axis=1)
         plt.figure(figsize=(16, 10))
         ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
-        plt.suptitle('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=7)
+        plt.title('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=20)
         plt.savefig('./sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.taskid, mc, beta_index))
         plt.close()
 
@@ -527,7 +527,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled'] * (tsne_results.shape[0] - 1) + ['true']})], axis=1)
         plt.figure(figsize=(16, 10))
         ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
-        plt.suptitle('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=7)
+        plt.title('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=20)
         plt.savefig('./sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.taskid, mc, beta_index))
         plt.close()
 
@@ -573,7 +573,7 @@ def lambda_thm4(args, kwargs):
 
         plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
 
-        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=7)
+        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
         plt.xlabel("1/beta")
         plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
         plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
