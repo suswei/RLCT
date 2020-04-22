@@ -95,7 +95,7 @@ def sub_prior_loss(dico):
             loss += (-(std / std_prior).log() +
                      (std.pow(2) + mean.pow(2)) /
                      (2 * std_prior ** 2) - 1 / 2).sum()
-        else:
+        elif p != None:
             loss += sub_prior_loss(p)
     return loss
 
@@ -112,7 +112,7 @@ def sub_entropy(dico):
             std = (1 + p.rho.exp()).log()
             n = np.prod(std.size())
             entropy += std.log().sum() + .5 * n * (1 + np.log(2 * np.pi))
-        else:
+        elif p != None:
             entropy += sub_entropy(p)
     return entropy
 
@@ -143,7 +143,7 @@ def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
                 gammaln(alpha_n) - gammaln(alpha_0) + \
                 .5 * np.log(kappa_0 / kappa_n) - .5 * n * np.log(2 * np.pi)
 
-        else:
+        elif p != None:
             logprior += sub_conjprior(
                 p, alpha_0, beta_0, mu_0, kappa_0)
     return logprior
@@ -171,7 +171,7 @@ def sub_conjpriorknownmean(dico, mean, alpha_0, beta_0):
             logprior += - beta_n.log() * alpha_n + \
                 gammaln(alpha_n) - gammaln(alpha_0) + \
                 alpha_0 * np.log(beta_0) - .5 * n * np.log(2 * np.pi)
-        else:
+        elif p != None:
             logprior += sub_conjpriorknownmean(
                 p, mean, alpha_0, beta_0)
     return logprior
@@ -201,7 +201,7 @@ def sub_mixtgaussprior(dico, sigma_1, sigma_2, pi):
             pgauss2 = (- theta2 / (2. * sigma_2 ** 2)).exp() / sigma_2
             logprior += (pi * pgauss1 + (1 - pi) * pgauss2 + 1e-8).log().sum()
             logprior -= n / 2 * np.log(2 * np.pi)
-        else:
+        elif p != None:
             logprior += sub_mixtgaussprior(
                 p, sigma_1, sigma_2, pi)
     return logprior
@@ -389,7 +389,7 @@ class Sample(nn.Module):
                         p.mean.data.clone()))
                 association.append((var_dico[name].eps,
                                     var_dico[name].eps.data.clone().normal_()))
-            else:
+            elif p != None:
                 self.draw(association, p)
 
     def forward(self, *inputs):

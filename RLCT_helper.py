@@ -38,7 +38,7 @@ def retrieve_model(args):
         elif args.dataset == 'MNIST':
             w_dim = (args.input_dim + 1) * 9 / 2
     elif args.network in ['Tanh', 'ReducedRankRegression']:
-        w_dim = (args.input_dim + args.output_dim + 2)*args.H
+        w_dim = (args.input_dim + args.output_dim)*args.H
     else:
         w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim
 

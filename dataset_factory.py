@@ -111,7 +111,7 @@ def get_dataset_by_id(args,kwargs):
         X = m.sample(torch.Size([args.syntheticsamplesize]))
 
         # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
+        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params.T)), args.b_params.T)
         y_rv = Normal(mean,1)
 
         y = y_rv.sample()
@@ -136,8 +136,8 @@ def get_dataset_by_id(args,kwargs):
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = m.sample(torch.Size([args.syntheticsamplesize]))
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
-        y_rv = MultivariateNormal(mean, torch.eye(args.H))
+        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params.T)), args.b_params.T)
+        y_rv = MultivariateNormal(mean, torch.eye(args.H)) #output_dim equals H
 
         y = y_rv.sample()
 

@@ -47,8 +47,8 @@ class LogisticRegression(nn.Module):
 class Tanh(nn.Module):
     def __init__(self, input_dim, output_dim, H):
         super(Tanh, self).__init__()
-        self.fc1 = nn.Linear(input_dim, H)
-        self.fc2 = nn.Linear(H, output_dim)
+        self.fc1 = nn.Linear(input_dim, H, bias=False)
+        self.fc2 = nn.Linear(H, output_dim, bias=False)
 
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
@@ -58,8 +58,8 @@ class Tanh(nn.Module):
 class ReducedRankRegression(nn.Module):
     def __init__(self, input_dim, output_dim, H):
         super(ReducedRankRegression, self).__init__()
-        self.fc1 = nn.Linear(input_dim, H)
-        self.fc2 = nn.Linear(H, output_dim)
+        self.fc1 = nn.Linear(input_dim, H, bias=False)
+        self.fc2 = nn.Linear(H, output_dim, bias=False)
 
     def forward(self, x):
         x = self.fc1(x)
