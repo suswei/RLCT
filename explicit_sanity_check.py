@@ -8,135 +8,109 @@ def main(taskid):
     #dataset_num, mc = np.unravel_index(taskid, [3, 100])
 
     taskid = int(taskid[0])
-    if taskid in range(54):
+    if taskid in range(36):
         index = 1
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [1000],
-            'VItype': ['implicit'],
-            'epochs': [20, 50, 100],
+            'VItype': ['explicit'],
+            'epochs': [500],
             'batchsize': [10],
-            'betasbegin': [0.1],
-            'betasend': [2],
+            'betasbegin': [0.05],
+            'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
             'n_hidden_D': [256],
             'num_hidden_layers_D': [2],
             'n_hidden_G': [256],
             'num_hidden_layers_G': [2],
             'lambda_asymptotic': ['thm4'],
-            'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
-            'MCs': [10],
-            'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
+            'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
+            'MCs': [20],
+            'R': [20],
+            'lr_primal': [0.05],
+            'lr_dual': [0.005],
+            'lr': [0.05, 0.01]
         }
-    elif (taskid-54) in range(54):
+    elif (taskid-36) in range(36):
         index = 2
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [5000],
-            'VItype': ['implicit'],
-            'epochs': [20, 50, 100],
+            'VItype': ['explicit'],
+            'epochs': [500],
             'batchsize': [100],
-            'betasbegin': [0.1],
-            'betasend': [2],
+            'betasbegin': [0.05],
+            'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
             'n_hidden_D': [256],
             'num_hidden_layers_D': [2],
             'n_hidden_G': [256],
             'num_hidden_layers_G': [2],
             'lambda_asymptotic': ['thm4'],
-            'dpower': [2/5], #1/5, 2/5, 3/5, 4/5
-            'MCs': [10],
-            'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.005, 0.001],
-            'lr' : [0.05]
+            'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
+            'MCs': [20],
+            'R': [20],
+            'lr_primal': [0.05],
+            'lr_dual': [0.005],
+            'lr' : [0.05, 0.01]
         }
-    elif (taskid - 54 - 54) in range(54):
+    elif (taskid - 36 - 36) in range(36):
         index = 3
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network ReducedRankRegression --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
             'syntheticsamplesize': [10000],
-            'VItype': ['implicit'],
-            'epochs': [50, 100, 200],
+            'VItype': ['explicit'],
+            'epochs': [500],
             'batchsize': [128],
-            'betasbegin': [0.1],
-            'betasend': [0.5],
+            'betasbegin': [0.05],
+            'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
             'n_hidden_D': [256],
             'num_hidden_layers_D': [4],
             'n_hidden_G': [256],
             'num_hidden_layers_G': [4],
             'lambda_asymptotic': ['thm4'],
-            'dpower': [2/5],
-            'MCs': [10],
-            'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
+            'dpower': [2/5, 4/5],
+            'MCs': [20],
+            'R': [20],
+            'lr_primal': [0.05],
+            'lr_dual': [0.005],
+            'lr': [0.05, 0.01]
         }
-    elif (taskid - 54 - 54 - 54) in range(54):
+    elif (taskid - 36 - 36 - 36) in range(36):
         index = 4
         hyperparameter_config = {
             'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
-            'syntheticsamplesize': [60000],
-            'VItype': ['implicit'],
-            'epochs': [50, 100, 200],
-            'batchsize': [256],
-            'betasbegin': [0.1],
-            'betasend': [0.5],
-            'betalogscale': ['true'],
-            'n_hidden_D': [512],
-            'num_hidden_layers_D': [6],
-            'n_hidden_G': [512],
-            'num_hidden_layers_G': [6],
-            'lambda_asymptotic': ['thm4'],
-            'dpower': [2/5], #1/5, 2/5, 3/5
-            'MCs': [10],
-            'R': [10],
-            'lr_primal': [0.05, 0.01, 0.005],
-            'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
-        }
-    elif (taskid - 54 - 54 - 54 -54) in range(36):
-        index = 5
-        hyperparameter_config = {
-            'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
-            'syntheticsamplesize': [1000, 5000, 10000],
+            'syntheticsamplesize': [20000],
             'VItype': ['explicit'],
             'epochs': [500],
-            'batchsize': [0],
-            'betasbegin': [0.1],
-            'betasend': [0],
+            'batchsize': [256],
+            'betasbegin': [0.05],
+            'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
-            'n_hidden_D': [0],
-            'num_hidden_layers_D': [0],
-            'n_hidden_G': [0],
-            'num_hidden_layers_G': [0],
+            'n_hidden_D': [256],
+            'num_hidden_layers_D': [6],
+            'n_hidden_G': [256],
+            'num_hidden_layers_G': [6],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5
-            'MCs': [100],
-            'R': [10],
-            'lr_primal': [0],
-            'lr_dual': [0],
-            'lr' : [0.05, 0.01]
+            'MCs': [20],
+            'R': [20],
+            'lr_primal': [0.05],
+            'lr_dual': [0.005],
+            'lr': [0.05, 0.01]
         }
-
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
     if index == 1:
         i = taskid
     elif index == 2:
-        i = taskid - 54
+        i = taskid - 36
     elif index == 3:
-        i = taskid - 54 - 54
+        i = taskid - 36 - 36
     elif index == 4:
-        i = taskid - 54 - 54 - 54
-    elif index == 5:
-        i = taskid -54 -54 -54 -54
+        i = taskid - 36 - 36 - 36
     key, value = zip(*hyperparameter_experiments[i].items())
     dataset = value[0]
     if dataset == 'lr_synthetic':
@@ -152,15 +126,6 @@ def main(taskid):
     batchsize = value[4]
     betasbegin = value[5]
     betasend = value[6]
-    if syntheticsamplesize == 1000:
-        batchsize = 10
-        betasend = 2
-    if syntheticsamplesize == 5000:
-        batchsize = 100
-        betasend = 2
-    if syntheticsamplesize == 10000:
-        batchsize = 128
-        betasend = 0.5
     betalogscale = value[7]
     n_hidden_D = value[8]
     num_hidden_layers_D = value[9]
