@@ -239,15 +239,15 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             break
 
     plt.figure(figsize=(10, 7))
-    plt.plot(list(range(0, args.epochs)), train_loss_epoch,
-             list(range(0, args.epochs)), valid_loss_epoch,
-             list(range(0, args.epochs)), train_reconstr_err_epoch,
-             list(range(0, args.epochs)), valid_reconstr_err_epoch,
-             list(range(0, args.epochs)), D_err_epoch)
+    plt.plot(list(range(0, len(train_loss_epoch))), train_loss_epoch,
+             list(range(0, len(valid_loss_epoch))), valid_loss_epoch,
+             list(range(0, len(train_reconstr_err_epoch))), train_reconstr_err_epoch,
+             list(range(0, len(valid_reconstr_err_epoch))), valid_reconstr_err_epoch,
+             list(range(0, len(D_err_epoch))), D_err_epoch)
     plt.legend(('primal loss (train)', 'primal loss (validation)', 'reconstr err component (train)', 'reconstr err component (valid)', 'discriminator err component'), loc='center right', fontsize=16)
     plt.xlabel('epoch', fontsize=16)
     plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
     plt.close()
 
     plt.figure(figsize=(10, 7))
@@ -259,7 +259,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     plt.legend(('reconstr err component', 'discriminator err component','primal loss'), loc='upper right', fontsize=16)
     plt.xlabel('epochs*batches (minibatches)', fontsize=16)
     plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
     plt.close()
 
     return G
@@ -380,7 +380,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
                 'reconstr err component (valid)', 'loss prior component'), loc='center right', fontsize=16)
     plt.xlabel('epoch', fontsize=16)
     plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
     plt.close()
 
     plt.figure(figsize=(10, 7))
@@ -391,7 +391,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
     plt.legend(('reconstr err component', 'loss prior component', 'loss'), loc='upper right',fontsize=16)
     plt.xlabel('epochs*batches (minibatches)', fontsize=16)
     plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.taskid, mc, beta_index))
+    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
     plt.close()
 
     return var_model
@@ -483,7 +483,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         plt.figure(figsize=(16, 10))
         ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
         plt.title('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-        plt.savefig('./sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.taskid, mc, beta_index))
+        plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
         plt.close()
 
         my_list = range(args.R)
@@ -528,7 +528,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         plt.figure(figsize=(16, 10))
         ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
         plt.title('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-        plt.savefig('./sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.taskid, mc, beta_index))
+        plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
         plt.close()
 
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
@@ -549,7 +549,7 @@ def lambda_thm4(args, kwargs):
 
     for mc in range(0, args.MCs):
 
-        path = './sanity_check/taskid{}/img/mc{}'.format(args.taskid, mc)
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -576,7 +576,7 @@ def lambda_thm4(args, kwargs):
         plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
         plt.xlabel("1/beta")
         plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
-        plt.savefig('./sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.taskid, mc))
+        plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.VItype, args.taskid, mc))
         plt.close()
 
         if args.wandb_on:
@@ -886,15 +886,15 @@ def main():
             "std RLCT estimates": RLCT_estimates.std()
         })
 
-    path = './sanity_check/taskid{}/'.format(args.taskid)
+    path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
-    with open('./sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.taskid), 'wb') as f:
+    with open('./{}_sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.VItype, args.taskid), 'wb') as f:
         pickle.dump(results, f) #TODO: add hyperparamter configuration
 
     print(results)
 
-    pd.DataFrame.from_dict(results).to_csv('./sanity_check/taskid{}/configuration_plus_results.csv'.format(args.taskid), index=None, header=True)
+    pd.DataFrame.from_dict(results).to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
 
 if __name__ == "__main__":
     main()
