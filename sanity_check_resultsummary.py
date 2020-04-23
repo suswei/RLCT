@@ -18,8 +18,6 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
                 one_taskid = pd.concat([pd.DataFrame.from_dict({'taskid':[i]}), one_taskid], axis=1)
                 results_total = pd.concat([results_total, one_taskid],axis=0)
 
-    results_total['training_sample_size'] = results_total.apply(lambda row: int(row.syntheticsamplesize*0.7), axis=1)
-
     for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
 
         results_dataset = results_total[results_total['dataset']==dataset]
@@ -43,7 +41,7 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
                results_dataset_config = results_dataset[results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr.eq(lr)]
 
             if results_dataset_config.shape[0] != 0:
-                training_sample_size = results_dataset_config.loc[:, ['training_sample_size']].values[:,0]
+                training_sample_size = results_dataset_config.loc[:, ['syntheticsamplesize']].values[:,0]
                 true_RLCT = results_dataset_config.loc[:, ['true_RLCT']].values[:,0]
                 d_on_2 = results_dataset_config.loc[:, ['d_on_2']].values[:,0]
                 estimated_RLCT_OLS = results_dataset_config.loc[:, ['mean RLCT estimates (OLS)']].values[:,0]
