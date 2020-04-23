@@ -29,18 +29,18 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
 
         for config_index in range(len(hyperparameter_experiments)):
             key, value = zip(*hyperparameter_experiments[config_index].items())
+            betasend = value[0]
+            dpower = value[1]
             if VI_type == 'implicit':
-                epochs = value[0]
-                lr_primal = value[1]
-                lr_dual = value[2]
+                lr_primal = value[2]
+                lr_dual = value[3]
             else:
-                epochs = value[0]
-                lr = value[1]
+                lr = value[2]
 
             if VI_type == 'implicit':
-               results_dataset_config = results_dataset[results_dataset.epochs.eq(epochs) & results_dataset.lr_primal.eq(lr_primal) & results_dataset.lr_dual.eq(lr_dual)]
+               results_dataset_config = results_dataset[results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr_primal.eq(lr_primal) & results_dataset.lr_dual.eq(lr_dual)]
             else:
-               results_dataset_config = results_dataset[results_dataset.epochs.eq(epochs) & results_dataset.lr.eq(lr)]
+               results_dataset_config = results_dataset[results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr.eq(lr)]
 
             if results_dataset_config.shape[0] != 0:
                 training_sample_size = results_dataset_config.loc[:, ['training_sample_size']].values[:,0]
@@ -63,32 +63,34 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
                 plt.ylabel('RLCT', fontsize=16)
                 plt.ylim((0, max(d_on_2)+2))
                 if VI_type == 'implicit':
-                    plt.title('taskid:{}, dataset:{}, epochs:{}, lr_primal:{}, lr_dual:{}'.format(results_dataset_config.loc[:,['taskid']].values[0:], dataset, epochs, lr_primal, lr_dual), fontsize=10)
-                    plt.savefig(dir_path + 'dataset{}_{}_epochs{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, epochs, lr_primal, lr_dual))
+                    plt.title('taskid:{}, dataset:{}, betasend:{}, dpower:{}, lr_primal:{}, lr_dual:{}'.format(results_dataset_config.loc[:,['taskid']].values[0:], dataset, betasend, dpower, lr_primal, lr_dual), fontsize=10)
+                    plt.savefig(dir_path + 'dataset{}_{}_betasend{}_dpower{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, betasend, dpower, lr_primal, lr_dual))
                 else:
-                    plt.title('taskid:{}, dataset:{}, epochs:{}, lr:{}'.format(results_dataset_config.loc[:, ['taskid']].values[0:], dataset, epochs, lr),fontsize=10)
-                    plt.savefig(dir_path + 'dataset{}_{}_epochs{}_lr{}.png'.format(dataset, VI_type, epochs, lr))
+                    plt.title('taskid:{}, dataset:{}, betasend:{}, dpower:{} lr:{}'.format(results_dataset_config.loc[:, ['taskid']].values[0:], dataset, betasend, dpower, lr),fontsize=10)
+                    plt.savefig(dir_path + 'dataset{}_{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasend, dpower, lr))
                 plt.close()
 
-def main():
+def main(VI_type):
 
-    save_dir = 'D:/UMelb/PhD_Projects/RLCT/sanity_check/'
-    VI_type = 'explicit'
+    save_dir = 'D:/UMelb/PhD_Projects/RLCT/{}_sanity_check/'.format(VI_type)
+
     if VI_type == 'implicit':
         hyperparameter_config = {
-            'epochs': [20, 50, 100,200],
-            'lr_primal': [0.05, 0.01, 0.005],
+            'betasend': [0.2, 0.5, 1.5],
+            'dpower': [2/5, 4/5],
+            'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001]
         }
     else:
         hyperparameter_config = {
-            'epochs': [50, 100],
+            'betasend': [0.2, 0.5, 1.5],
+            'dpower': [2/5, 4/5],
             'lr': [0.05, 0.01]
         }
     if VI_type == 'implicit':
-       sanity_check_result_summary(hyperparameter_config= hyperparameter_config, VI_type=VI_type, dir_path= 'D:/UMelb/PhD_Projects/RLCT/sanity_check/', task_numbers= list(range(0, 216)))
+       sanity_check_result_summary(hyperparameter_config= hyperparameter_config, VI_type=VI_type, dir_path= save_dir, task_numbers= list(range(0, 288)))
     else:
-        sanity_check_result_summary(hyperparameter_config=hyperparameter_config, VI_type=VI_type, dir_path='D:/UMelb/PhD_Projects/RLCT/sanity_check/', task_numbers=list(range(216, 252)))
+        sanity_check_result_summary(hyperparameter_config=hyperparameter_config, VI_type=VI_type, dir_path=save_dir, task_numbers=list(range(0, 144)))
 
     for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
         video_name = save_dir + '{}_{}.mp4'.format(VI_type, dataset)
@@ -100,17 +102,18 @@ def main():
 
         for config_index in range(len(hyperparameter_experiments)):
             key, value = zip(*hyperparameter_experiments[config_index].items())
-            epochs = value[0]
+            betasend = value[0]
+            dpower = value[1]
             if VI_type == 'implicit':
-               lr_primal = value[1]
-               lr_dual = value[2]
+               lr_primal = value[2]
+               lr_dual = value[3]
             elif VI_type == 'explicit':
-               lr = value[1]
+               lr = value[2]
 
             if VI_type == 'implicit':
-               one_image_path = save_dir + 'dataset{}_{}_epochs{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, epochs, lr_primal, lr_dual)
+               one_image_path = save_dir + 'dataset{}_{}_betasend{}_dpower{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, betasend, dpower, lr_primal, lr_dual)
             else:
-                one_image_path = save_dir + 'dataset{}_{}_epochs{}_lr{}.png'.format(dataset, VI_type, epochs, lr)
+                one_image_path = save_dir + 'dataset{}_{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasend, dpower, lr)
 
             if os.path.isfile(one_image_path):
                file_paths += [one_image_path]
