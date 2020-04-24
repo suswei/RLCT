@@ -695,8 +695,10 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Variational Inference')
+
     parser.add_argument('--taskid', type=int, default=1000+randint(0, 1000),
                         help='taskid from sbatch')
+
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
                         choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'])
@@ -704,9 +706,8 @@ def main():
     parser.add_argument('--syntheticsamplesize', type=int, default=60000,
                         help='sample size of synthetic dataset')
 
-    parser.add_argument('--VItype', type=str, default='implicit',
-                        help='type of variaitonal inference',
-                        choices=['explicit','implicit'])
+    parser.add_argument('--dpower', type=float, default=2 / 5,
+                        help='set dimension of model to n^dpower')
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
@@ -718,15 +719,28 @@ def main():
     parser.add_argument('--batchsize', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 10)')
 
-    parser.add_argument('--betasbegin', type=float, default=0.1,
-                        help='where beta range should begin')
 
-    parser.add_argument('--betasend', type=float, default=2,
-                        help='where beta range should end')
+    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
+                        help='which asymptotic characterisation of lambda to use',
+                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
 
-    parser.add_argument('--betalogscale', type=str, default='true',
-                        help='true if beta should be on 1/log n scale (default: true)',
-                        choices=['true','false'])
+
+
+    # variational inference
+
+    parser.add_argument('--VItype', type=str, default='implicit',
+                        help='type of variaitonal inference',
+                        choices=['explicit','implicit'])
+
+    parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
+                        help='prior used on model parameters (default: gaussian)',
+                        choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
+
+    parser.add_argument('--pretrainDepochs', type=int, default=2,
+                        help='number of epochs to pretrain discriminator')
+
+    parser.add_argument('--trainDepochs', type=int, default=2,
+                        help='number of epochs to train discriminator for each minibatch update of generator')
 
     parser.add_argument('--n_hidden_D', type=int, default=256,
                         help='number of hidden units in discriminator D')
@@ -740,39 +754,7 @@ def main():
     parser.add_argument('--num_hidden_layers_G', type = int, default = 2,
                         help = 'number of hidden layers in generator G')
 
-    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
-                        help='which asymptotic characterisation of lambda to use',
-                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
-
-    parser.add_argument('--pretrainDepochs', type=int,  default=2,
-                        help='number of epochs to pretrain discriminator')
-    
-    parser.add_argument('--trainDepochs', type=int, default=2,
-                        help='number of epochs to train discriminator for each minibatch update of generator')
-    
-    parser.add_argument('--dpower', type=float, default=2/5,
-                        help='set dimension of model to n^dpower')
-    
-    # as high as possible
-    # parser.add_argument('--epsilon_mc', type=int, default=10,
-    #                     help='number of draws for estimating E_\epsilon')
-    parser.add_argument('--numbetas', type=int,  default=20,
-                        help='how many betas should be swept between betasbegin and betasend')
-
-    parser.add_argument('--MCs', type=int, default=100,
-                        help='number of times to split into train-test')
-
-    parser.add_argument('--R', type=int, default=100,
-                        help='number of MC draws from approximate posterior (default:100)')
-
-    parser.add_argument('--wandb_on', action="store_true",
-                        help='use wandb to log experiment')
-
-    parser.add_argument('--tsne_viz', action="store_true",
-                        help='use tsne visualization of generator')
-
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
+    # optimization
 
     parser.add_argument('--lr_primal', type=float,  default=1e-4, metavar='LR',
                         help='primal learning rate (default: 0.01)')
@@ -786,19 +768,57 @@ def main():
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
 
+
+    # about those beta's
+
+    parser.add_argument('--beta_auto', action="store_true",
+                        help='calculate optimal range of betas based on sample size')
+
+    parser.add_argument('--betasbegin', type=float, default=0.1,
+                        help='where beta range should begin')
+
+    parser.add_argument('--betasend', type=float, default=2,
+                        help='where beta range should end')
+
+    parser.add_argument('--betalogscale', type=str, default='true',
+                        help='true if beta should be on 1/log n scale (default: true)',
+                        choices=['true','false'])
+
+    parser.add_argument('--numbetas', type=int,  default=20,
+                        help='how many betas should be swept between betasbegin and betasend')
+
+    # as high as possible
+    # parser.add_argument('--epsilon_mc', type=int, default=10,
+    #                     help='number of draws for estimating E_\epsilon')
+
+    parser.add_argument('--MCs', type=int, default=100,
+                        help='number of times to split into train-test')
+
+    parser.add_argument('--R', type=int, default=100,
+                        help='number of MC draws from approximate posterior (default:100)')
+
+    # visualization/logging
+
+    parser.add_argument('--wandb_on', action="store_true",
+                        help='use wandb to log experiment')
+
+    parser.add_argument('--tsne_viz', action="store_true",
+                        help='use tsne visualization of generator')
+
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
+
+    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                        help='how many batches to wait before logging training status')
+
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
 
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
 
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
-
-    parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
-                        help='prior used on model parameters (default: gaussian)',
-                        choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
     parser.add_argument("--mode", default='client')
+
     parser.add_argument("--port", default=62364)
 
     args = parser.parse_args()
@@ -860,9 +880,15 @@ def main():
     args.w_dim = w_dim
 
     # set range of betas
-    args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
-    if args.betalogscale == 'true':
-        args.betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)
+    if args.beta_auto:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1/np.log(args.n)*(1 - 1/np.sqrt(2*np.log(args.n))),1/np.log(args.n)*(1 + 1/np.sqrt(2*np.log(args.n))),args.numbetas)
+    else:
+        args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
+        if args.betalogscale == 'true':
+            args.betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)
 
     print(vars(args))
 
