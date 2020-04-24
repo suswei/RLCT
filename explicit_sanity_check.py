@@ -24,8 +24,8 @@ def main(taskid):
             'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
-            'MCs': [20],
-            'R': [20],
+            'MCs': [1],
+            'R': [2],
             'lr_primal': [0],
             'lr_dual': [0],
             'lr': [0.05, 0.01]
