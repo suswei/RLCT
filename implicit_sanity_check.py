@@ -29,7 +29,7 @@ def main(taskid):
             'R': [20],
             'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
+            'lr': [0]
         }
     elif (taskid-72) in range(72):
         index = 2
@@ -52,7 +52,7 @@ def main(taskid):
             'R': [20],
             'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001],
-            'lr' : [0.05]
+            'lr' : [0]
         }
     elif (taskid - 72 - 72) in range(72):
         index = 3
@@ -75,7 +75,7 @@ def main(taskid):
             'R': [20],
             'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
+            'lr': [0]
         }
     elif (taskid - 72 - 72 - 72) in range(72):
         index = 4
@@ -98,7 +98,7 @@ def main(taskid):
             'R': [20],
             'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001],
-            'lr': [0.05]
+            'lr': [0]
         }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]

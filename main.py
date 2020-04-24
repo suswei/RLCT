@@ -580,9 +580,9 @@ def lambda_thm4(args, kwargs):
 
         plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
 
-        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
-        plt.xlabel("1/beta")
-        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
+        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.1f}, true lambda = {:.1f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
+        plt.xlabel("1/beta", fontsize=8)
+        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
         plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.VItype, args.taskid, mc))
         plt.close()
 
@@ -823,13 +823,13 @@ def main():
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
 
-        input_dim = int(np.power(args.syntheticsamplesize*0.7, args.dpower))
+        input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
 
     elif args.dataset == 'tanh_synthetic':
 
-        H = int(np.power(args.syntheticsamplesize*0.7, args.dpower)*0.5) #number of hidden unit
+        H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
         args.H = H
         args.a_params = torch.zeros([H, 1], dtype=torch.float32) # H * input_dim
         args.b_params = torch.zeros([1, H], dtype=torch.float32) # output_dim * H
@@ -838,7 +838,7 @@ def main():
 
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
-        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.7, args.dpower)))/4)
+        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize, args.dpower)))/4)
         H = output_dim
         input_dim = output_dim + 3
         args.H = H
