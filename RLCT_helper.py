@@ -6,7 +6,6 @@ import numpy as np
 from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
-import statsmodels.api as sm
 
 import models
 
@@ -79,7 +78,6 @@ def randn(shape, device):
 def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
 
     ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
-    ols_model2 = sm.OLS(temperedNLL_perMC_perBeta, sm.add_constant(1/betas)).fit()
 
     ols_resid = ols_model.resid
     res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
@@ -90,9 +88,9 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
 
     if np.all(np.linalg.eigvals(sigma) > 0):
         gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
-        return ols_model2.params[1], gls_model.params[1]
+        return ols_model.params[1], gls_model.params[1]
     else:
-        return ols_model2.params[1], np.nan
+        return ols_model.params[1], np.nan
 
 
 # TODO: this test module was copied from original pyvarinf package, needs to be updated to fit into current framework
