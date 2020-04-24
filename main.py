@@ -158,12 +158,12 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 
                 elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
 
-                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
+                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
                     if args.dataset == 'tanh_synthetic':
-                        output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                        output = torch.matmul(torch.tanh(torch.matmul(data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                     else:
-                        output = torch.matmul(torch.matmul(data, a_params), b_params)
+                        output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                     reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
 
             reconstr_err_component = reconstr_err / args.epsilon_mc
@@ -204,13 +204,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 if args.dataset == 'tanh_synthetic':
-                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                 elif args.dataset =='lr_synthetic':
                     output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
                     valid_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
+                   valid_output = torch.matmul(torch.matmul(valid_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                 valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
             valid_loss_one = np.average(valid_loss_minibatch) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
@@ -222,13 +222,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 if args.dataset == 'tanh_synthetic':
-                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
+                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                 elif args.dataset == 'lr_synthetic':
                     output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
                     train_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
+                    train_output = torch.matmul(torch.matmul(train_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                 train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
             train_loss_epoch.append(np.average(train_loss_minibatch2) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
             train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
@@ -411,8 +411,8 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             A = w_sampled_from_G[0, 0:(w_dim - 1)]
             b = w_sampled_from_G[0, w_dim - 1]
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
+            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
 
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -424,9 +424,9 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
                 output = F.log_softmax(output_cat_zero, dim=1)
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
             elif args.dataset == 'tanh_synthetic':
-                output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                output = torch.matmul(torch.tanh(torch.matmul(data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
             elif args.dataset == 'reducedrank_synthetic':
-                output = torch.matmul(torch.matmul(data, a_params), b_params)
+                output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
 
             nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
