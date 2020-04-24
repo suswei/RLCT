@@ -158,12 +158,12 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 
                 elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
 
-                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
+                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
                     if args.dataset == 'tanh_synthetic':
-                        output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                        output = torch.matmul(torch.tanh(torch.matmul(data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                     else:
-                        output = torch.matmul(torch.matmul(data, a_params), b_params)
+                        output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                     reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
 
             reconstr_err_component = reconstr_err / args.epsilon_mc
@@ -204,13 +204,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 if args.dataset == 'tanh_synthetic':
-                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
+                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                 elif args.dataset =='lr_synthetic':
                     output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
                     valid_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
+                   valid_output = torch.matmul(torch.matmul(valid_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                 valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
             valid_loss_one = np.average(valid_loss_minibatch) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
@@ -222,13 +222,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 if args.dataset == 'tanh_synthetic':
-                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
+                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                 elif args.dataset == 'lr_synthetic':
                     output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
                     train_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
+                    train_output = torch.matmul(torch.matmul(train_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                 train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
             train_loss_epoch.append(np.average(train_loss_minibatch2) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
             train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
@@ -411,8 +411,8 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             A = w_sampled_from_G[0, 0:(w_dim - 1)]
             b = w_sampled_from_G[0, w_dim - 1]
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
-            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
+            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
 
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -424,9 +424,9 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
                 output = F.log_softmax(output_cat_zero, dim=1)
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
             elif args.dataset == 'tanh_synthetic':
-                output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
+                output = torch.matmul(torch.tanh(torch.matmul(data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
             elif args.dataset == 'reducedrank_synthetic':
-                output = torch.matmul(torch.matmul(data, a_params), b_params)
+                output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
 
             nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
@@ -580,9 +580,9 @@ def lambda_thm4(args, kwargs):
 
         plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
 
-        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
-        plt.xlabel("1/beta")
-        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
+        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.1f}, true lambda = {:.1f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
+        plt.xlabel("1/beta", fontsize=8)
+        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
         plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.VItype, args.taskid, mc))
         plt.close()
 
@@ -843,13 +843,13 @@ def main():
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
 
-        input_dim = int(np.power(args.syntheticsamplesize*0.7, args.dpower))
+        input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
 
     elif args.dataset == 'tanh_synthetic':
 
-        H = int(np.power(args.syntheticsamplesize*0.7, args.dpower)*0.5) #number of hidden unit
+        H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
         args.H = H
         args.a_params = torch.zeros([H, 1], dtype=torch.float32) # H * input_dim
         args.b_params = torch.zeros([1, H], dtype=torch.float32) # output_dim * H
@@ -858,7 +858,7 @@ def main():
 
         #suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         #solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
-        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize*0.7, args.dpower)))/4)
+        output_dim = int((-3 + math.sqrt(9 + 4*2*np.power(args.syntheticsamplesize, args.dpower)))/4)
         H = output_dim
         input_dim = output_dim + 3
         args.H = H

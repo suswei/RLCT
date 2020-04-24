@@ -82,16 +82,16 @@ def get_dataset_by_id(args,kwargs):
         output_dim = 2
         input_dim = args.w_0.shape[0]
 
-        X = torch.randn(args.syntheticsamplesize, input_dim)
+        X = torch.randn(2*args.syntheticsamplesize, input_dim)
         output = torch.mm(X, args.w_0) + args.b
         output_cat_zero = torch.cat((output, torch.zeros(X.shape[0], 1)), 1)
         softmax_output = F.softmax(output_cat_zero, dim=1)
         y = softmax_output.data.max(1)[1]  # get the index of the max probability
 
         #The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
-        train_size = int(0.7 * args.syntheticsamplesize)
-        valid_size = int(0.15 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - valid_size - train_size
+        train_size = args.syntheticsamplesize
+        valid_size = int(args.syntheticsamplesize*0.5)
+        test_size = 2*args.syntheticsamplesize - train_size - valid_size
 
         dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[train_size, valid_size, test_size])
 
@@ -108,7 +108,7 @@ def get_dataset_by_id(args,kwargs):
         # what Watanabe calls three-layered neural network is actually one hidden layer
         # one input unit, H hidden units, and one output unit
         m = Uniform(torch.tensor([0.0]), torch.tensor([1.0]))
-        X = m.sample(torch.Size([args.syntheticsamplesize]))
+        X = m.sample(torch.Size([2*args.syntheticsamplesize]))
 
         # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
         mean = torch.matmul(torch.tanh(torch.matmul(X, torch.transpose(args.a_params,0,1))), torch.transpose(args.b_params,0,1))
@@ -117,9 +117,9 @@ def get_dataset_by_id(args,kwargs):
         y = y_rv.sample()
 
         # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
-        train_size = int(0.7 * args.syntheticsamplesize)
-        valid_size = int(0.15*args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - valid_size - train_size
+        train_size = args.syntheticsamplesize
+        valid_size = int(args.syntheticsamplesize*0.5)
+        test_size = 2*args.syntheticsamplesize - train_size - valid_size
 
         dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y), [train_size, valid_size, test_size])
 
@@ -135,16 +135,17 @@ def get_dataset_by_id(args,kwargs):
     # TODO (HUI)
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
-        X = m.sample(torch.Size([args.syntheticsamplesize]))
+        X = m.sample(torch.Size([2*args.syntheticsamplesize]))      
         mean = torch.matmul(torch.tanh(torch.matmul(X, torch.transpose(args.a_params,0,1))), torch.transpose(args.b_params,0,1))
+
         y_rv = MultivariateNormal(mean, torch.eye(args.H)) #output_dim equals H
 
         y = y_rv.sample()
 
         # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
-        train_size = int(0.7 * args.syntheticsamplesize)
-        valid_size = int(0.15 * args.syntheticsamplesize)
-        test_size = args.syntheticsamplesize - valid_size - train_size
+        train_size = args.syntheticsamplesize
+        valid_size = int(args.syntheticsamplesize*0.5)
+        test_size = 2*args.syntheticsamplesize - train_size - valid_size
 
         dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[train_size, valid_size, test_size])
 
