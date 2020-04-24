@@ -19,16 +19,16 @@ def main(taskid):
             'betasbegin': [0.05],
             'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
-            'n_hidden_D': [256],
-            'num_hidden_layers_D': [2],
-            'n_hidden_G': [256],
-            'num_hidden_layers_G': [2],
+            'n_hidden_D': [0],
+            'num_hidden_layers_D': [0],
+            'n_hidden_G': [0],
+            'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
             'MCs': [20],
             'R': [20],
-            'lr_primal': [0.05],
-            'lr_dual': [0.005],
+            'lr_primal': [0],
+            'lr_dual': [0],
             'lr': [0.05, 0.01]
         }
     elif (taskid-36) in range(36):
@@ -42,16 +42,16 @@ def main(taskid):
             'betasbegin': [0.05],
             'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
-            'n_hidden_D': [256],
-            'num_hidden_layers_D': [2],
-            'n_hidden_G': [256],
-            'num_hidden_layers_G': [2],
+            'n_hidden_D': [0],
+            'num_hidden_layers_D': [0],
+            'n_hidden_G': [0],
+            'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
             'MCs': [20],
             'R': [20],
-            'lr_primal': [0.05],
-            'lr_dual': [0.005],
+            'lr_primal': [0],
+            'lr_dual': [0],
             'lr' : [0.05, 0.01]
         }
     elif (taskid - 36 - 36) in range(36):
@@ -65,16 +65,16 @@ def main(taskid):
             'betasbegin': [0.05],
             'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
-            'n_hidden_D': [256],
-            'num_hidden_layers_D': [4],
-            'n_hidden_G': [256],
-            'num_hidden_layers_G': [4],
+            'n_hidden_D': [0],
+            'num_hidden_layers_D': [0],
+            'n_hidden_G': [0],
+            'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5],
             'MCs': [20],
             'R': [20],
-            'lr_primal': [0.05],
-            'lr_dual': [0.005],
+            'lr_primal': [0],
+            'lr_dual': [0],
             'lr': [0.05, 0.01]
         }
     elif (taskid - 36 - 36 - 36) in range(36):
@@ -88,16 +88,16 @@ def main(taskid):
             'betasbegin': [0.05],
             'betasend': [0.2, 0.5, 1.5],
             'betalogscale': ['true'],
-            'n_hidden_D': [256],
-            'num_hidden_layers_D': [6],
-            'n_hidden_G': [256],
-            'num_hidden_layers_G': [6],
+            'n_hidden_D': [0],
+            'num_hidden_layers_D': [0],
+            'n_hidden_G': [0],
+            'num_hidden_layers_G': [0],
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5
             'MCs': [20],
             'R': [20],
-            'lr_primal': [0.05],
-            'lr_dual': [0.005],
+            'lr_primal': [0],
+            'lr_dual': [0],
             'lr': [0.05, 0.01]
         }
     keys, values = zip(*hyperparameter_config.items())

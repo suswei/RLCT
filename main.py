@@ -573,9 +573,9 @@ def lambda_thm4(args, kwargs):
 
         plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
 
-        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.2f}, true lambda = {:.2f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
-        plt.xlabel("1/beta")
-        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype))
+        plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.1f}, true lambda = {:.1f}".format(args.w_dim/2, ols, args.trueRLCT), fontsize=8)
+        plt.xlabel("1/beta", fontsize=8)
+        plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
         plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/thm4_beta_vs_lhs.png'.format(args.VItype, args.taskid, mc))
         plt.close()
 
