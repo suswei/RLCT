@@ -17,7 +17,7 @@ def count_parameters(model):
 
 
 def retrieve_model(args):
-    #M is the input dimension, H is hidden unit number, N is the output dimension for '3layertanh_synthetic' and 'reducedrank_synthetic'
+    #M is the input dimension, H is hidden unit number, N is the output dimension for 'tanh_synthetic' and 'reducedrank_synthetic'
     # retrieve model
     if args.network == 'CNN':
         model = models.CNN(output_dim=args.output_dim)
@@ -27,10 +27,10 @@ def retrieve_model(args):
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
         print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'Tanh':
-        model = models.Tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-    if args.network == 'ReducedRankRegression':
-        model = models.ReducedRankRegression(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
+    if args.network == 'tanh':
+        model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
+    if args.network == 'reducedrank':
+        model = models.reducedrank(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
 
     # TODO: count parameters automatically
     if args.network == 'logistic':
@@ -38,7 +38,7 @@ def retrieve_model(args):
             w_dim = (args.input_dim + 1)
         elif args.dataset == 'MNIST':
             w_dim = (args.input_dim + 1) * 9 / 2
-    elif args.network in ['Tanh', 'ReducedRankRegression']:
+    elif args.network in ['tanh', 'reducedrank']:
         w_dim = (args.input_dim + args.output_dim)*args.H
     else:
         w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim

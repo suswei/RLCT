@@ -20,7 +20,7 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
 
     results_total['training_sample_size'] = results_total.apply(lambda row: int(row.syntheticsamplesize*0.7), axis=1)
 
-    for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
+    for dataset in ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic']:
 
         results_dataset = results_total[results_total['dataset']==dataset]
 
@@ -90,7 +90,7 @@ def main():
     else:
         sanity_check_result_summary(hyperparameter_config=hyperparameter_config, VI_type=VI_type, dir_path='D:/UMelb/PhD_Projects/RLCT/sanity_check/', task_numbers=list(range(216, 252)))
 
-    for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
+    for dataset in ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic']:
         video_name = save_dir + '{}_{}.mp4'.format(VI_type, dataset)
 
         file_paths = []
