@@ -18,7 +18,7 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
                 one_taskid = pd.concat([pd.DataFrame.from_dict({'taskid':[i]}), one_taskid], axis=1)
                 results_total = pd.concat([results_total, one_taskid],axis=0)
 
-    for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
+    for dataset in ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic']:
 
         results_dataset = results_total[results_total['dataset']==dataset]
 
@@ -90,7 +90,7 @@ def main(VI_type):
     else:
         sanity_check_result_summary(hyperparameter_config=hyperparameter_config, VI_type=VI_type, dir_path=save_dir, task_numbers=list(range(0, 144)))
 
-    for dataset in ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic']:
+    for dataset in ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic']:
         video_name = save_dir + '{}_{}.mp4'.format(VI_type, dataset)
 
         file_paths = []

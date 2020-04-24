@@ -118,7 +118,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
 
         if args.dataset == 'lr_synthetic':
             correct = 0
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             training_sum_se = 0
 
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -156,14 +156,14 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
                     # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size (minibatch, C)
                     reconstr_err += args.loss_criterion(logsoftmax_output, target)
 
-                elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+                elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
 
-                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
-                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
-                    if args.dataset == '3layertanh_synthetic':
-                        output = torch.matmul(torch.tanh(torch.matmul(data, a_params.T)), b_params.T)
+                    a_params = w_sampled_from_G[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
+                    b_params = w_sampled_from_G[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+                    if args.dataset == 'tanh_synthetic':
+                        output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
                     else:
-                        output = torch.matmul(torch.matmul(data, a_params.T), b_params.T)
+                        output = torch.matmul(torch.matmul(data, a_params), b_params)
                     reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
 
             reconstr_err_component = reconstr_err / args.epsilon_mc
@@ -182,7 +182,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             if args.dataset == 'lr_synthetic':
                 pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
                 correct += pred.eq(target.data).cpu().sum()
-            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+            elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
                 training_sum_se += args.loss_criterion(output, target).detach().cpu().numpy()*len(target)
             if batch_idx % args.log_interval == 0:
                 print(
@@ -193,7 +193,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
         # every epoch, log the following
         if args.dataset == 'lr_synthetic':
             print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(correct, args.n, 100. * correct / args.n))
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             print('\nTrain set: MSE: {} \n'.format(training_sum_se/args.n))
 
         with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
@@ -203,14 +203,14 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             valid_loss_minibatch = []
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
-                if args.dataset == '3layertanh_synthetic':
-                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params.T)), b_params.T)
+                if args.dataset == 'tanh_synthetic':
+                   valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, a_params)), b_params)
                 elif args.dataset =='lr_synthetic':
                     output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
                     valid_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                   valid_output = torch.matmul(torch.matmul(valid_data, a_params.T), b_params.T)
+                   valid_output = torch.matmul(torch.matmul(valid_data, a_params), b_params)
                 valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
             valid_loss_one = np.average(valid_loss_minibatch) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
@@ -221,14 +221,14 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
             train_loss_minibatch2 = []
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
-                if args.dataset == '3layertanh_synthetic':
-                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params.T)), b_params.T)
+                if args.dataset == 'tanh_synthetic':
+                    train_output = torch.matmul(torch.tanh(torch.matmul(train_data, a_params)), b_params)
                 elif args.dataset == 'lr_synthetic':
                     output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
                     train_output = F.log_softmax(output_cat_zero, dim=1)
                 elif args.dataset == 'reducedrank_synthetic':
-                    train_output = torch.matmul(torch.matmul(train_data, a_params.T), b_params.T)
+                    train_output = torch.matmul(torch.matmul(train_data, a_params), b_params)
                 train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
             train_loss_epoch.append(np.average(train_loss_minibatch2) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
             train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
@@ -291,7 +291,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
         prior_parameters['alpha_0'] = .5
         prior_parameters['beta_0'] = .5
         prior_parameters['mean'] = 0.
-        
+
     var_model = copy.deepcopy(var_model_initial)
     var_model.set_prior(args.prior, **prior_parameters)
     if args.cuda:
@@ -410,9 +410,9 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
         if args.dataset == 'lr_synthetic':
             A = w_sampled_from_G[0, 0:(w_dim - 1)]
             b = w_sampled_from_G[0, w_dim - 1]
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
-            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
+        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+            a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
+            b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
 
         nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -423,10 +423,10 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
                 output_cat_zero = torch.cat((output, torch.zeros(data.shape[0], 1)), 1)
                 output = F.log_softmax(output_cat_zero, dim=1)
                 # input to nll_loss should be log-probabilities of each class. input has to be a Tensor of size either (minibatch, C)
-            elif args.dataset == '3layertanh_synthetic':
-                output = torch.matmul(torch.tanh(torch.matmul(data, a_params.T)), b_params.T)
+            elif args.dataset == 'tanh_synthetic':
+                output = torch.matmul(torch.tanh(torch.matmul(data, a_params)), b_params)
             elif args.dataset == 'reducedrank_synthetic':
-                output = torch.matmul(torch.matmul(data, a_params.T), b_params.T)
+                output = torch.matmul(torch.matmul(data, a_params), b_params)
 
             nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
@@ -437,7 +437,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
 # w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
 
-    if args.dataset in ['3layertanh_synthetic','reducedrank_synthetic']:
+    if args.dataset in ['tanh_synthetic','reducedrank_synthetic']:
         MSEloss = nn.MSELoss(reduction='sum')
     nll = np.empty(0)
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -448,13 +448,14 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
         output = sample(data)
         if args.dataset == 'lr_synthetic':
             nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
-        elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             nll = np.append(nll, np.array(MSEloss(output, target).detach().cpu().numpy()))
 
     return nll.sum()
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
+# Also return approximate inference estimate of var_w^\beta [nL_n(w)]: 1/R \sum_{r=1}^R [nL_n(w_r^*)]^2 - [ 1/R \sum_{r=1}^R nL_n(w_r^*)]^2
 def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index):
 
     model, w_dim = retrieve_model(args)
@@ -464,7 +465,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
     if args.dataset == 'lr_synthetic':
         true_weight = torch.cat((args.w_0.reshape(1, args.input_dim), args.b.reshape(1, 1)), 1)
-    elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
+    elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
 
     if args.VItype == 'implicit':
@@ -475,16 +476,18 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         eps = torch.randn(1000,args.epsilon_dim)
         w_sampled_from_G = G(eps)
 
-        sampled_true_w = torch.cat((w_sampled_from_G, true_weight), 0)
-        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
-        tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
-        tsne_results = pd.DataFrame(tsne_results, columns=['dim%s'%(dim_index) for dim_index in [1,2]])
-        tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled']*(tsne_results.shape[0]-1) + ['true']})], axis=1)
-        plt.figure(figsize=(16, 10))
-        ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
-        plt.title('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-        plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
-        plt.close()
+        if args.tsne_viz:
+
+            sampled_true_w = torch.cat((w_sampled_from_G, true_weight), 0)
+            tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+            tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
+            tsne_results = pd.DataFrame(tsne_results, columns=['dim%s'%(dim_index) for dim_index in [1,2]])
+            tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled']*(tsne_results.shape[0]-1) + ['true']})], axis=1)
+            plt.figure(figsize=(16, 10))
+            ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
+            plt.title('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=20)
+            plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+            plt.close()
 
         my_list = range(args.R)
         num_cores = 1  # multiprocessing.cpu_count()
@@ -499,37 +502,38 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
         # form sample object from variational distribution r
         sample = pyvarinf.Sample(var_model=var_model)
 
-        sampled_weight = torch.empty((0, args.w_dim))
-        for draw_index in range(1000):
-            sample.draw()
-            if args.dataset == 'lr_synthetic':
-                weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
-                bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
-                weight = (weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() * weight_mean_rho_eps.eps)[0,:].reshape(1, weight_mean_rho_eps.mean.shape[1]) #there are two probability output for each category, we only need the parameters for one category
-                bias = (bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() * bias_mean_rho_eps.eps)[0].reshape(1,1)
-                weight_bias = torch.cat((weight, bias), 1)
-                sampled_weight = torch.cat((sampled_weight, weight_bias),0)
+        if args.tsne_viz:
+            sampled_weight = torch.empty((0, args.w_dim))
+            for draw_index in range(1000):
+                sample.draw()
+                if args.dataset == 'lr_synthetic':
+                    weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
+                    bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
+                    weight = (weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() * weight_mean_rho_eps.eps)[0,:].reshape(1, weight_mean_rho_eps.mean.shape[1]) #there are two probability output for each category, we only need the parameters for one category
+                    bias = (bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() * bias_mean_rho_eps.eps)[0].reshape(1,1)
+                    weight_bias = torch.cat((weight, bias), 1)
+                    sampled_weight = torch.cat((sampled_weight, weight_bias),0)
 
-            elif args.dataset in ['3layertanh_synthetic', 'reducedrank_synthetic']:
-                layer1_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
-                layer2_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[1].values())[0]
+                elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+                    layer1_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
+                    layer2_weight_mean_rho_eps = list(list(sample.var_model.dico.values())[1].values())[0]
 
-                layer1_weight = layer1_weight_mean_rho_eps.mean + (1 + layer1_weight_mean_rho_eps.rho.exp()).log() *layer1_weight_mean_rho_eps.eps # H * input_dim
-                layer2_weight = layer2_weight_mean_rho_eps.mean + (1 + layer2_weight_mean_rho_eps.rho.exp()).log() *layer2_weight_mean_rho_eps.eps # output_dim * H
+                    layer1_weight = layer1_weight_mean_rho_eps.mean + (1 + layer1_weight_mean_rho_eps.rho.exp()).log() *layer1_weight_mean_rho_eps.eps # H * input_dim
+                    layer2_weight = layer2_weight_mean_rho_eps.mean + (1 + layer2_weight_mean_rho_eps.rho.exp()).log() *layer2_weight_mean_rho_eps.eps # output_dim * H
 
-                one_weight = torch.cat((layer1_weight.reshape(1, (layer1_weight.shape[0] * layer1_weight.shape[1])), layer2_weight.reshape(1, (layer2_weight.shape[0] * layer2_weight.shape[1]))), 1)
-                sampled_weight = torch.cat((sampled_weight, one_weight),0)
+                    one_weight = torch.cat((layer1_weight.reshape(1, (layer1_weight.shape[0] * layer1_weight.shape[1])), layer2_weight.reshape(1, (layer2_weight.shape[0] * layer2_weight.shape[1]))), 1)
+                    sampled_weight = torch.cat((sampled_weight, one_weight),0)
 
-        sampled_true_w = torch.cat((sampled_weight, true_weight), 0)
-        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
-        tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
-        tsne_results = pd.DataFrame(tsne_results, columns=['dim%s' % (dim_index) for dim_index in [1, 2]])
-        tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled'] * (tsne_results.shape[0] - 1) + ['true']})], axis=1)
-        plt.figure(figsize=(16, 10))
-        ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
-        plt.title('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-        plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
-        plt.close()
+            sampled_true_w = torch.cat((sampled_weight, true_weight), 0)
+            tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+            tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
+            tsne_results = pd.DataFrame(tsne_results, columns=['dim%s' % (dim_index) for dim_index in [1, 2]])
+            tsne_results = pd.concat([tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled'] * (tsne_results.shape[0] - 1) + ['true']})], axis=1)
+            plt.figure(figsize=(16, 10))
+            ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
+            plt.title('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=20)
+            plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+            plt.close()
 
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
         my_list = range(args.R)
@@ -538,7 +542,10 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
             delayed(approxinf_nll_explicit)(i, train_loader, sample, args) for i in my_list)
 
 
-    return np.asarray(approxinf_nlls).mean(), np.asarray(approxinf_nlls)
+    approxinf_nlls_array = np.asarray(approxinf_nlls)
+    mean_nlls = approxinf_nlls_array.mean()
+    var_nlls = (approxinf_nlls_array**2).mean() - (mean_nlls)**2
+    return mean_nlls, var_nlls, approxinf_nlls_array
 
 
 # Thm 4 of Watanabe's WBIC: E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
@@ -560,7 +567,7 @@ def lambda_thm4(args, kwargs):
 
         temperedNLL_perMC_perBeta = np.empty(0)
         for beta_index in range(args.betas.shape[0]):
-            temp, _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
+            temp, _, _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         # least squares fit for lambda
@@ -604,14 +611,13 @@ def lambda_thm4average(args, kwargs):
 
         for mc in range(0, args.MCs):
 
+            path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+            if not os.path.exists(path):
+                os.makedirs(path)
+
             # draw new training-testing split
-            train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
-            temp, _ = approxinf_nll(train_loader,
-                                              test_loader,
-                                              input_dim,
-                                              output_dim,
-                                              args,
-                                              beta_index)
+            train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
+            temp,_,_ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
@@ -635,8 +641,12 @@ def lambda_cor3(args, kwargs):
 
     for mc in range(0, args.MCs):
 
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
         # draw new training-testing split
-        train_loader, test_loader, input_dim, output_dim = get_dataset_by_id(args, kwargs)
+        train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
 
         lambdas_beta1 = np.empty(0)
         for beta_index in range(args.betas.shape[0]):
@@ -644,7 +654,7 @@ def lambda_cor3(args, kwargs):
             beta = args.betas[beta_index]
             beta1 = beta
             beta2 = beta+0.05/np.log(args.n)
-            _, nlls = approxinf_nll(train_loader, test_loader, input_dim, output_dim, args, beta_index)
+            _, _, nlls = (train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
 
             lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
             lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
@@ -655,6 +665,28 @@ def lambda_cor3(args, kwargs):
 
     return RLCT_estimates
 
+def varTI(args, kwargs):
+
+    RLCT_estimates = np.empty(0)
+
+    # set optimal parameter
+    args.betas = np.array([1 / np.log(args.n)])
+
+    # for each MC, calculate (beta)^2 Var_w^\beta nL_n(w)
+    for mc in range(0, args.MCs):
+
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        # draw new training-testing split
+        train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
+        _, var_nll , _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, 0)
+        RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
+        print('MC: {} (beta)^2 Var_w^\beta nL_n(w): {:.2f}'.format(mc, var_nll/(np.log(args.n)**2)))
+
+    return RLCT_estimates
+
 
 def main():
 
@@ -662,12 +694,12 @@ def main():
     random.seed()
 
     # Training settings
-    parser = argparse.ArgumentParser(description='RLCT Implicit Variational Inference')
+    parser = argparse.ArgumentParser(description='RLCT Variational Inference')
     parser.add_argument('--taskid', type=int, default=1000+randint(0, 1000),
                         help='taskid from sbatch')
     parser.add_argument('--dataset', type=str, default='lr_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
-                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'])
+                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'])
 
     parser.add_argument('--syntheticsamplesize', type=int, default=60000,
                         help='sample size of synthetic dataset')
@@ -678,7 +710,7 @@ def main():
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
-                        choices=['FFrelu','CNN','logistic', 'Tanh', 'ReducedRankRegression'])
+                        choices=['FFrelu','CNN','logistic', 'tanh', 'reducedrank'])
 
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
@@ -710,7 +742,7 @@ def main():
 
     parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
                         help='which asymptotic characterisation of lambda to use',
-                        choices=['thm4', 'thm4_average', 'cor3'])
+                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
 
     parser.add_argument('--pretrainDepochs', type=int,  default=2,
                         help='number of epochs to pretrain discriminator')
@@ -735,6 +767,9 @@ def main():
 
     parser.add_argument('--wandb_on', action="store_true",
                         help='use wandb to log experiment')
+
+    parser.add_argument('--tsne_viz', action="store_true",
+                        help='use tsne visualization of generator')
 
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -767,7 +802,7 @@ def main():
     parser.add_argument("--port", default=62364)
 
     args = parser.parse_args()
-    print(vars(args))
+
 
     # TODO: maybe should switch to Tensorboard, wandb does not seem to have many users
     if args.wandb_on:
@@ -792,7 +827,7 @@ def main():
         args.w_0 = torch.randn(input_dim,1)
         args.b = torch.randn(1)
 
-    elif args.dataset == '3layertanh_synthetic':
+    elif args.dataset == 'tanh_synthetic':
 
         H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
         args.H = H
@@ -826,10 +861,11 @@ def main():
 
     # set range of betas
     args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
-    print(args.betas)
     if args.betalogscale == 'true':
         args.betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)
-    print(args.betas)
+
+    print(vars(args))
+
 
     if args.lambda_asymptotic == 'thm4':
 
@@ -878,6 +914,17 @@ def main():
     elif args.lambda_asymptotic == 'cor3':
 
         RLCT_estimates = lambda_cor3(args, kwargs)
+        results = dict({
+            "true_RLCT": true_RLCT,
+            "d on 2": w_dim/2,
+            "RLCT estimates": RLCT_estimates,
+            "mean RLCT estimates": RLCT_estimates.mean(),
+            "std RLCT estimates": RLCT_estimates.std()
+        })
+
+    elif args.lambda_asymptotic == 'varTI':
+
+        RLCT_estimates = varTI(args, kwargs)
         results = dict({
             "true_RLCT": true_RLCT,
             "d on 2": w_dim/2,

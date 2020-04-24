@@ -11,7 +11,7 @@ def main(taskid):
     if taskid in range(36):
         index = 1
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
+            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [1000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -34,7 +34,7 @@ def main(taskid):
     elif (taskid-36) in range(36):
         index = 2
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
+            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [5000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -57,7 +57,7 @@ def main(taskid):
     elif (taskid - 36 - 36) in range(36):
         index = 3
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network ReducedRankRegression --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
+            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network reducedrank --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
             'syntheticsamplesize': [10000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -80,7 +80,7 @@ def main(taskid):
     elif (taskid - 36 - 36 - 36) in range(36):
         index = 4
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', '3layertanh_synthetic', 'reducedrank_synthetic'],
+            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [20000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -115,10 +115,10 @@ def main(taskid):
     dataset = value[0]
     if dataset == 'lr_synthetic':
         network = 'logistic'
-    elif dataset == '3layertanh_synthetic':
-        network = 'Tanh'
+    elif dataset == 'tanh_synthetic':
+        network = 'tanh'
     elif dataset == 'reducedrank_synthetic':
-        network = 'ReducedRankRegression'
+        network = 'reducedrank'
 
     syntheticsamplesize = value[1]
     VItype = value[2]
