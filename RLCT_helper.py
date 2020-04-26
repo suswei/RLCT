@@ -7,6 +7,8 @@ from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
 from scipy.linalg import toeplitz
 import statsmodels.api as sm
+from sklearn.linear_model import ElasticNet
+from matplotlib import pyplot as plt
 
 import models
 
@@ -76,26 +78,36 @@ def randn(shape, device):
         return torch.cuda.FloatTensor(*shape).normal_()
 
 
-def lsfit_lambda(temperedNLL_perMC_perBeta, betas):
+def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
 
-    ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / betas)).fit()
-    ols_model2 = sm.OLS(temperedNLL_perMC_perBeta, sm.add_constant(1/betas)).fit()
+    if args.robust_lsfit:
 
-    ols_resid = ols_model.resid
-    res_fit = OLS(list(ols_resid[1:]), list(ols_resid[:-1])).fit()
-    rho = res_fit.params
+        regr = ElasticNet(random_state=0,fit_intercept=True)
+        regr.fit((1 / args.betas).reshape(args.numbetas,1), temperedNLL_perMC_perBeta)
+        intercept_estimate = regr.intercept_
+        # slope_estimate = min(regr.coef_[0],args.w_dim/2)
+        slope_estimate = regr.coef_[0]
 
-    order = toeplitz(np.arange(betas.__len__()))
-    sigma = rho ** order
-
-    if np.all(np.linalg.eigvals(sigma) > 0):
-        gls_model = GLS(temperedNLL_perMC_perBeta, add_constant(1 / betas), sigma=sigma).fit()
-        return ols_model2.params[1], gls_model.params[1]
     else:
-        return ols_model2.params[1], np.nan
+
+        ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
+        intercept_estimate = ols_model.params[0]
+        # slope_estimate = min(ols_model.params[1],args.w_dim/2)
+        slope_estimate = ols_model.params[1]
 
 
-# TODO: this test module was copied from original pyvarinf package, needs to be updated to fit into current framework
+    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
+    plt.plot(1 / args.betas, intercept_estimate + slope_estimate * 1 / args.betas, '-')
+
+    plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.1f}, true lambda = {:.1f}".format(args.w_dim/2, slope_estimate, args.trueRLCT), fontsize=8)
+    plt.xlabel("1/beta", fontsize=8)
+    plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
+    plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
+    plt.close()
+
+    return slope_estimate
+
+# TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
 def test(epoch, test_loader, model, args, verbose=False):
 
     test_loss = 0
