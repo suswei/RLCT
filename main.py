@@ -431,27 +431,33 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
-    return nll.sum()
-
+    if args.dataset == 'lr_sythetic':
+        return nll.sum()
+    elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+        return target.shape[1]/2*np.log(2*np.pi)+nll.sum()/2
 
 # w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
 
     if args.dataset in ['tanh_synthetic','reducedrank_synthetic']:
         MSEloss = nn.MSELoss(reduction='sum')
-    nll = np.empty(0)
+    loss = np.empty(0)
+
+    sample.draw()
+
     for batch_idx, (data, target) in enumerate(train_loader):
 
         data, target = load_minibatch(args, data, target)
-
-        sample.draw()
         output = sample(data)
         if args.dataset == 'lr_synthetic':
-            nll = np.append(nll, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
+            loss = np.append(loss, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            nll = np.append(nll, np.array(MSEloss(output, target).detach().cpu().numpy()))
+            loss = np.append(loss, np.array(MSEloss(output, target).detach().cpu().numpy()))
 
-    return nll.sum()
+    if args.dataset == 'lr_sythetic':
+        return loss.sum()
+    elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+        return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
