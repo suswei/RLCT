@@ -767,11 +767,11 @@ def main():
 
     # about those beta's
 
-    parser.add_argument('--beta_auto', action="store_false", default=True,
-                        help='flag to turn OFF calculate optimal range of betas based on sample size')
+    parser.add_argument('--beta_auto', action="store_true", default=False,
+                        help='flag to turn ON calculate optimal range of betas based on sample size')
 
-    parser.add_argument('--robust_lsfit', action="store_false", default=True,
-                        help='flag to turn OFF fitting lambda robustly')
+    parser.add_argument('--robust_lsfit', action="store_true", default=False,
+                        help='flag to turn ON fitting lambda robustly')
 
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
