@@ -434,7 +434,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
     if args.dataset == 'lr_sythetic':
         return nll.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)*args.n + nll.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)+nll.sum()/2
 
 # w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
@@ -457,7 +457,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
     if args.dataset == 'lr_sythetic':
         return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)*args.n + loss.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
