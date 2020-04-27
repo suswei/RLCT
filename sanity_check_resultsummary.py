@@ -27,18 +27,19 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
 
         for config_index in range(len(hyperparameter_experiments)):
             key, value = zip(*hyperparameter_experiments[config_index].items())
-            betasend = value[0]
-            dpower = value[1]
+            betasbegin = value[0]
+            betasend = value[1]
+            dpower = value[2]
             if VI_type == 'implicit':
-                lr_primal = value[2]
-                lr_dual = value[3]
+                lr_primal = value[3]
+                lr_dual = value[4]
             else:
-                lr = value[2]
+                lr = value[3]
 
             if VI_type == 'implicit':
                results_dataset_config = results_dataset[results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr_primal.eq(lr_primal) & results_dataset.lr_dual.eq(lr_dual)]
             else:
-               results_dataset_config = results_dataset[results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr.eq(lr)]
+               results_dataset_config = results_dataset[results_dataset.betasbegin.eq(betasbegin) & results_dataset.betasend.eq(betasend) & results_dataset.dpower.eq(dpower) & results_dataset.lr.eq(lr)]
 
             if results_dataset_config.shape[0] != 0:
                 training_sample_size = results_dataset_config.loc[:, ['syntheticsamplesize']].values[:,0]
@@ -59,16 +60,16 @@ def sanity_check_result_summary(hyperparameter_config, VI_type, dir_path: str='D
 
                 plt.xlabel('training sample size', fontsize=16)
                 plt.ylabel('RLCT', fontsize=16)
-                plt.ylim((0, max(d_on_2)+2))
+                plt.ylim((0, max(d_on_2)+3.5))
                 if VI_type == 'implicit':
                     plt.title('taskid:{}, dataset:{}, betasend:{}, dpower:{}, lr_primal:{}, lr_dual:{}'.format(results_dataset_config.loc[:,['taskid']].values[0:], dataset, betasend, dpower, lr_primal, lr_dual), fontsize=10)
                     plt.savefig(dir_path + 'dataset{}_{}_betasend{}_dpower{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, betasend, dpower, lr_primal, lr_dual))
                 else:
-                    plt.title('taskid:{}, dataset:{}, betasend:{}, dpower:{} lr:{}'.format(results_dataset_config.loc[:, ['taskid']].values[0:], dataset, betasend, dpower, lr),fontsize=10)
-                    plt.savefig(dir_path + 'dataset{}_{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasend, dpower, lr))
+                    plt.title('taskid:{}, dataset:{}, betasbegin:{}, betasend:{}, dpower:{} lr:{}'.format(results_dataset_config.loc[:, ['taskid']].values[0:], dataset, betasbegin, betasend, dpower, lr),fontsize=10)
+                    plt.savefig(dir_path + 'dataset{}_{}_betasbegin{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasbegin, betasend, dpower, lr))
                 plt.close()
 
-def main(VI_type):
+def main(VI_type, dataset):
 
     save_dir = 'D:/UMelb/PhD_Projects/RLCT/{}_sanity_check/'.format(VI_type)
 
@@ -79,47 +80,65 @@ def main(VI_type):
             'lr_primal': [0.05, 0.01],
             'lr_dual': [0.005, 0.001]
         }
-    else:
-        hyperparameter_config = {
-            'betasend': [0.2, 0.5, 1.5],
-            'dpower': [2/5, 4/5],
-            'lr': [0.05, 0.01]
-        }
+    elif VI_type == 'explicit':
+        if dataset == 'lr_synthetic':
+            hyperparameter_config = {
+                'betasbegin': [0.05],
+                'betasend': [0.5, 1, 2.5],
+                'dpower': [2 / 5, 4 / 5],
+                'lr': [0.05, 0.01]
+            }
+        elif dataset == 'tanh_synthetic':
+            hyperparameter_config = {
+                'betasbegin': [0.1],
+                'betasend': [0.5, 2, 2.5],
+                'dpower': [2 / 5, 4 / 5],
+                'lr': [0.05, 0.01]
+            }
+        elif dataset == 'reducedrank_synthetic':
+            hyperparameter_config = {
+                'betasbegin': [0.01],
+                'betasend': [0.1, 0.2, 0.3],
+                'dpower': [2 / 5, 4 / 5],
+                'lr': [0.05, 0.01]
+            }
+
     if VI_type == 'implicit':
        sanity_check_result_summary(hyperparameter_config= hyperparameter_config, VI_type=VI_type, dir_path= save_dir, task_numbers= list(range(0, 288)))
     else:
         sanity_check_result_summary(hyperparameter_config=hyperparameter_config, VI_type=VI_type, dir_path=save_dir, task_numbers=list(range(0, 144)))
 
-    for dataset in ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic']:
-        video_name = save_dir + '{}_{}.mp4'.format(VI_type, dataset)
 
-        file_paths = []
+    video_name = save_dir + '{}_{}.mp4'.format(VI_type, dataset)
 
-        keys, values = zip(*hyperparameter_config.items())
-        hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    file_paths = []
 
-        for config_index in range(len(hyperparameter_experiments)):
-            key, value = zip(*hyperparameter_experiments[config_index].items())
-            betasend = value[0]
-            dpower = value[1]
-            if VI_type == 'implicit':
-               lr_primal = value[2]
-               lr_dual = value[3]
-            elif VI_type == 'explicit':
-               lr = value[2]
+    keys, values = zip(*hyperparameter_config.items())
+    hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-            if VI_type == 'implicit':
-               one_image_path = save_dir + 'dataset{}_{}_betasend{}_dpower{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, betasend, dpower, lr_primal, lr_dual)
-            else:
-                one_image_path = save_dir + 'dataset{}_{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasend, dpower, lr)
+    for config_index in range(len(hyperparameter_experiments)):
+        key, value = zip(*hyperparameter_experiments[config_index].items())
+        betasbegin = value[0]
+        betasend = value[1]
+        dpower = value[2]
+        if VI_type == 'implicit':
+           lr_primal = value[3]
+           lr_dual = value[4]
+        elif VI_type == 'explicit':
+           lr = value[3]
 
-            if os.path.isfile(one_image_path):
-               file_paths += [one_image_path]
+        if VI_type == 'implicit':
+           one_image_path = save_dir + 'dataset{}_{}_betasend{}_dpower{}_lrprimal{}_lrdual{}.png'.format(dataset, VI_type, betasend, dpower, lr_primal, lr_dual)
+        else:
+            one_image_path = save_dir + 'dataset{}_{}_betasbegin{}_betasend{}_dpower{}_lr{}.png'.format(dataset, VI_type, betasbegin, betasend, dpower, lr)
 
-        frame = cv2.imread(file_paths[0])
-        height, width, layers = frame.shape
-        video = cv2.VideoWriter(video_name, 0, 1, (width, height))
-        for file_path in file_paths:
-            video.write(cv2.imread(file_path))
-        cv2.destroyAllWindows()
-        video.release()
+        if os.path.isfile(one_image_path):
+           file_paths += [one_image_path]
+
+    frame = cv2.imread(file_paths[0])
+    height, width, layers = frame.shape
+    video = cv2.VideoWriter(video_name, 0, 1, (width, height))
+    for file_path in file_paths:
+        video.write(cv2.imread(file_path))
+    cv2.destroyAllWindows()
+    video.release()

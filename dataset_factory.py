@@ -102,7 +102,6 @@ def get_dataset_by_id(args,kwargs):
         loss_criterion = nn.NLLLoss(reduction="mean")
         true_RLCT = (input_dim + 1)/2
 
-    # TODO: (HUI) finish coding
     elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         # what Watanabe calls three-layered neural network is actually one hidden layer
@@ -132,7 +131,7 @@ def get_dataset_by_id(args,kwargs):
 
         max_integer = int(math.sqrt(args.H))
         true_RLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
-    # TODO (HUI)
+
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = m.sample(torch.Size([2*args.syntheticsamplesize]))      
