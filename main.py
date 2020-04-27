@@ -898,7 +898,7 @@ def main():
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(w_dim * np.log(args.n))),
                                  args.numbetas)
         args.betasbegin = 1 - 1 / np.sqrt(w_dim * np.log(args.n))
-        args.begasend = 1 + 1 / np.sqrt(w_dim * np.log(args.n))
+        args.betasend = 1 + 1 / np.sqrt(w_dim * np.log(args.n))
     else:
         args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
         if args.betalogscale == 'true':
