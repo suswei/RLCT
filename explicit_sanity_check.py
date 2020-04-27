@@ -20,7 +20,7 @@ def main(taskid):
             'lambda_asymptotic': ['thm4'],
             'dpower': [2/5, 4/5], #1/5, 2/5, 3/5, 4/5
             'MCs': [1],
-            'R': [10],
+            'R': [2],
             'lr': [0.05, 0.01, 0.001]
         }
     elif (taskid-72) in range(72):

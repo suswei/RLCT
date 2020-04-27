@@ -454,7 +454,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             loss = np.append(loss, np.array(MSEloss(output, target).detach().cpu().numpy()))
 
-    if args.dataset == 'lr_sythetic':
+    if args.dataset == 'lr_synthetic':
         return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
@@ -549,6 +549,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
 
     approxinf_nlls_array = np.asarray(approxinf_nlls)
+    print(approxinf_nlls_array)
     mean_nlls = approxinf_nlls_array.mean()
     var_nlls = (approxinf_nlls_array**2).mean() - (mean_nlls)**2
     return mean_nlls, var_nlls, approxinf_nlls_array
@@ -963,8 +964,12 @@ def main():
     '''
 
     args_dict = vars(args)
-    for key in ['a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
-        del args_dict[key]
+    if args.dataset == 'lr_synthetic':
+        for key in ['w_0', 'b', 'loss_criterion', 'model', 'betas']:
+            del args_dict[key]
+    if args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+        for key in ['a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
+            del args_dict[key]
 
     results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
 
