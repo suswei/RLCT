@@ -558,6 +558,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 def lambda_thm4(args, kwargs):
 
     RLCT_estimates_OLS = np.empty(0)
+    RLCT_estimates_robust = np.empty(0)
 
     for mc in range(0, args.MCs):
 
@@ -576,20 +577,23 @@ def lambda_thm4(args, kwargs):
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         # least squares fit for lambda
-        ols = lsfit_lambda(temperedNLL_perMC_perBeta, args, path)
+        robust, ols = lsfit_lambda(temperedNLL_perMC_perBeta, args, path)
 
+        RLCT_estimates_robust = np.append(RLCT_estimates_robust, robust)
         RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
 
+        print("RLCT robust: {}".format(RLCT_estimates_robust))
         print("RLCT OLS: {}".format(RLCT_estimates_OLS))
 
         if args.wandb_on:
             import wandb
+            wandb.run.summary["running RLCT robust"] = RLCT_estimates_robust
             wandb.run.summary["running RLCT OLS"] = RLCT_estimates_OLS
 
         print('Finishing MC {}'.format(mc))
 
     # return array of RLCT estimates, length args.MCs
-    return RLCT_estimates_OLS
+    return RLCT_estimates_robust, RLCT_estimates_OLS
 
 
 # apply E_{D_n} to Theorem 4 of Watanabe's WBIC: E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
@@ -624,10 +628,10 @@ def lambda_thm4average(args, kwargs):
     plt.title("multiple MC realisation")
     plt.xlabel("1/beta")
     plt.ylabel("implicit VI estimate of E_{D_n} E^beta_w [nL_n(w)]")
-    RLCT_estimate_OLS = lsfit_lambda(temperedNLL_perMC_perBeta, args)
+    RLCT_estimate_robust, RLCT_estimate_OLS = lsfit_lambda(temperedNLL_perMC_perBeta, args)
 
     # each RLCT estimate is one elment array
-    return RLCT_estimate_OLS
+    return RLCT_estimate_robust, RLCT_estimate_OLS
 
 
 def lambda_cor3(args, kwargs):
@@ -766,11 +770,11 @@ def main():
 
     # about those beta's
 
-    parser.add_argument('--beta_auto', action="store_false", default=True,
-                        help='flag to turn OFF calculate optimal range of betas based on sample size')
+    parser.add_argument('--beta_auto_liberal', action="store_true", default=False,
+                        help='flag to turn ON calculate optimal (liberal) range of betas based on sample size')
 
-    parser.add_argument('--robust_lsfit', action="store_false", default=True,
-                        help='flag to turn OFF fitting lambda robustly')
+    parser.add_argument('--beta_auto_conservative', action="store_true", default=False,
+                        help='flag to turn ON calculate optimal (conservative) range of betas based on sample size')
 
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
@@ -878,11 +882,19 @@ def main():
     args.w_dim = w_dim
 
     # set range of betas
-    if args.beta_auto:
+    if args.beta_auto_conservative:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
         # since U_n is N(0,1) under certain conditions,
         # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
         args.betas = np.linspace(1/np.log(args.n)*(1 - 1/np.sqrt(2*np.log(args.n))),1/np.log(args.n)*(1 + 1/np.sqrt(2*np.log(args.n))),args.numbetas)
+
+    elif args.beta_auto_liberal:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions, for the "liberal" setting,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2*d/2*\log n)), 1/log(n)(1 + 1/\sqrt(2*d/2*\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(w_dim * np.log(args.n))),
+                                 1 / np.log(args.n) * (1 + 1 / np.sqrt(w_dim * np.log(args.n))),
+                                 args.numbetas)
     else:
         args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
         if args.betalogscale == 'true':
@@ -894,10 +906,13 @@ def main():
     if args.lambda_asymptotic == 'thm4':
 
         # TODO: results should just be results, configuration should be dumped completely
-        RLCT_estimates_OLS = lambda_thm4(args, kwargs)
+        RLCT_estimates_robust, RLCT_estimates_OLS = lambda_thm4(args, kwargs)
         results = dict({
             "true_RLCT": true_RLCT,
             "d_on_2": w_dim/2,
+            "RLCT estimates (robust)": RLCT_estimates_robust,
+            "mean RLCT estimates (robust)": RLCT_estimates_robust.mean(),
+            "std RLCT estimates (robust)": RLCT_estimates_robust.std(),
             "RLCT estimates (OLS)": RLCT_estimates_OLS,
             "mean RLCT estimates (OLS)": RLCT_estimates_OLS.mean(),
             "std RLCT estimates (OLS)": RLCT_estimates_OLS.std(),
@@ -925,10 +940,11 @@ def main():
 
     elif args.lambda_asymptotic == 'thm4_average':
 
-        RLCT_estimate_OLS = lambda_thm4average(args, kwargs)
+        RLCT_estimate_robust, RLCT_estimate_OLS = lambda_thm4average(args, kwargs)
         results = dict({
             "true_RLCT": true_RLCT,
             "d on 2": w_dim/2,
+            "RLCT estimate (robust)": RLCT_estimate_robust,
             "RLCT estimate (OLS)": RLCT_estimate_OLS
         })
 
