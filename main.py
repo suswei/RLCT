@@ -887,6 +887,8 @@ def main():
         # since U_n is N(0,1) under certain conditions,
         # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
         args.betas = np.linspace(1/np.log(args.n)*(1 - 1/np.sqrt(2*np.log(args.n))),1/np.log(args.n)*(1 + 1/np.sqrt(2*np.log(args.n))),args.numbetas)
+        args.betasbegin = 1 - 1/np.sqrt(2*np.log(args.n))
+        args.betasend = 1 + 1/np.sqrt(2*np.log(args.n))
 
     elif args.beta_auto_liberal:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
@@ -895,6 +897,8 @@ def main():
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(w_dim * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(w_dim * np.log(args.n))),
                                  args.numbetas)
+        args.betasbegin = 1 - 1 / np.sqrt(w_dim * np.log(args.n))
+        args.begasend = 1 + 1 / np.sqrt(w_dim * np.log(args.n))
     else:
         args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
         if args.betalogscale == 'true':
@@ -905,7 +909,6 @@ def main():
 
     if args.lambda_asymptotic == 'thm4':
 
-        # TODO: results should just be results, configuration should be dumped completely
         RLCT_estimates_robust, RLCT_estimates_OLS = lambda_thm4(args, kwargs)
         results = dict({
             "true_RLCT": true_RLCT,
@@ -916,26 +919,6 @@ def main():
             "RLCT estimates (OLS)": RLCT_estimates_OLS,
             "mean RLCT estimates (OLS)": RLCT_estimates_OLS.mean(),
             "std RLCT estimates (OLS)": RLCT_estimates_OLS.std(),
-            "dataset" : args.dataset,
-            "syntheticsamplesize": args.syntheticsamplesize,
-            "VItype" : args.VItype,
-            "network": args.network,
-            "epochs" : args.epochs,
-            "batchsize" : args.batchsize,
-            "betasbegin" : args.betasbegin,
-            "betasend" : args.betasend,
-            "betalogscale" : args.betalogscale,
-            "n_hidden_D" : args.n_hidden_D,
-            "num_hidden_layers_D" : args.num_hidden_layers_D,
-            "n_hidden_G" : args.n_hidden_G,
-            "num_hidden_layers_G" : args.num_hidden_layers_G,
-            "lambda_asymptotic" : args.lambda_asymptotic,
-            "dpower" : args.dpower,
-            "MCs" : args.MCs,
-            "R" : args.R,
-            "lr_primal" : args.lr_primal,
-            "lr_dual" : args.lr_dual,
-            "lr" : args.lr
         })
 
     elif args.lambda_asymptotic == 'thm4_average':
@@ -969,16 +952,23 @@ def main():
             "mean RLCT estimates": RLCT_estimates.mean(),
             "std RLCT estimates": RLCT_estimates.std()
         })
+    print(results)
 
     path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
+    '''
     with open('./{}_sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.VItype, args.taskid), 'wb') as f:
         pickle.dump(results, f)
+    '''
 
-    print(results)
+    args_dict = vars(args)
+    for key in ['a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
+        del args_dict[key]
 
-    pd.DataFrame.from_dict(results).to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
+    results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
+
+    results_args.to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
 
 if __name__ == "__main__":
     main()
