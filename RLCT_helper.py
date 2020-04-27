@@ -80,32 +80,36 @@ def randn(shape, device):
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
 
-    if args.robust_lsfit:
+    # robust ls fit
 
-        regr = ElasticNet(random_state=0,fit_intercept=True)
-        regr.fit((1 / args.betas).reshape(args.numbetas,1), temperedNLL_perMC_perBeta)
-        intercept_estimate = regr.intercept_
-        # slope_estimate = min(regr.coef_[0],args.w_dim/2)
-        slope_estimate = regr.coef_[0]
+    regr = ElasticNet(random_state=0,fit_intercept=True)
+    regr.fit((1 / args.betas).reshape(args.numbetas,1), temperedNLL_perMC_perBeta)
+    robust_intercept_estimate = regr.intercept_
+    # slope_estimate = min(regr.coef_[0],args.w_dim/2)
+    robust_slope_estimate = regr.coef_[0]
 
-    else:
+    # vanilla ols fit
 
-        ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
-        intercept_estimate = ols_model.params[0]
-        # slope_estimate = min(ols_model.params[1],args.w_dim/2)
-        slope_estimate = ols_model.params[1]
+    ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
+    ols_intercept_estimate = ols_model.params[0]
+    # slope_estimate = min(ols_model.params[1],args.w_dim/2)
+    ols_slope_estimate = ols_model.params[1]
 
 
-    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
-    plt.plot(1 / args.betas, intercept_estimate + slope_estimate * 1 / args.betas, '-')
+    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta, label='nll beta')
+    plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-', label='robust ols')
+    plt.plot(1 / args.betas, ols_intercept_estimate + ols_slope_estimate * 1 / args.betas, 'b-', label='vanilla ols')
 
-    plt.title("Thm 4, one MC realisation: d_on_2 = {}, hat lambda = {:.1f}, true lambda = {:.1f}".format(args.w_dim/2, slope_estimate, args.trueRLCT), fontsize=8)
+    plt.title("Thm 4, one MC realisation: d_on_2 = {}, true lambda = {:.1f} "
+              "\n hat lambda robust = {:.1f}, hat lambda vanilla = {:.1f}"
+              .format(args.w_dim/2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
     plt.xlabel("1/beta", fontsize=8)
     plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
+    plt.legend()
     plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
     plt.close()
 
-    return slope_estimate
+    return robust_slope_estimate, ols_slope_estimate
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
 def test(epoch, test_loader, model, args, verbose=False):
