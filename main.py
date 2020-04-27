@@ -398,7 +398,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
 
 
 # TODO: approxinf_nll_implicit and approxinf_nll_explicit should eventually be merged.
-# Draw w^* from generator G and evaluate nL_n(w^*) on train_loader
+# Draw w^* from generator G and return nL_n(w^*) on train_loader
 def approxinf_nll_implicit(r, train_loader, G, model, args):
 
     G.eval()
@@ -414,7 +414,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
             b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
 
-        nll = np.empty(0)
+        loss = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
             data, target = load_minibatch(args, data, target)
@@ -428,15 +428,16 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             elif args.dataset == 'reducedrank_synthetic':
                 output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
 
-            nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
-            nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
+            temp = args.loss_criterion(output, target)*len(target) #get sum loss
+            loss = np.append(loss, np.array(temp.detach().cpu().numpy()))
 
     if args.dataset == 'lr_sythetic':
-        return nll.sum()
+        return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)+nll.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)*args.n+loss.sum()/2
 
-# w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
+
+# Draws w^* by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
 
     if args.dataset in ['tanh_synthetic','reducedrank_synthetic']:
@@ -457,7 +458,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
     if args.dataset == 'lr_sythetic':
         return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)*args.n+loss.sum()/2
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
