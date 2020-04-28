@@ -81,8 +81,7 @@ def randn(shape, device):
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
 
     # robust ls fit
-
-    regr = ElasticNet(random_state=0,fit_intercept=True)
+    regr = ElasticNet(random_state=0,fit_intercept=True, alpha=args.elasticnet_alpha)
     regr.fit((1 / args.betas).reshape(args.numbetas,1), temperedNLL_perMC_perBeta)
     robust_intercept_estimate = regr.intercept_
     # slope_estimate = min(regr.coef_[0],args.w_dim/2)
@@ -100,11 +99,11 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
     plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-', label='robust ols')
     plt.plot(1 / args.betas, ols_intercept_estimate + ols_slope_estimate * 1 / args.betas, 'b-', label='vanilla ols')
 
-    plt.title("Thm 4, one MC realisation: d_on_2 = {}, true lambda = {:.1f} "
+    plt.title("d_on_2 = {}, true lambda = {:.1f} "
               "\n hat lambda robust = {:.1f}, hat lambda vanilla = {:.1f}"
               .format(args.w_dim/2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
     plt.xlabel("1/beta", fontsize=8)
-    plt.ylabel("{} VI estimate of E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
+    plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
     plt.legend()
     plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
     plt.close()
