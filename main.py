@@ -166,7 +166,11 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                         output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                     reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
 
-            reconstr_err_component = reconstr_err / args.epsilon_mc
+            if args.dataset in ('reducedrank_synthetic','tanh_synthetic'):
+                reconstr_err_component = reconstr_err / (2*args.epsilon_mc)
+            else:
+                reconstr_err_component = reconstr_err / args.epsilon_mc
+
             discriminator_err_component = torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index] * args.n)
             loss_primal = reconstr_err_component + discriminator_err_component
             loss_primal.backward(retain_graph=True)
@@ -308,26 +312,17 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            if args.dataset == 'MNIST-binary':
-                for ind, y_val in enumerate(target):
-                    target[ind] = 0 if y_val < 5 else 1
-
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-
-            if args.dataset in ('MNIST', 'MNIST-binary'):
-                if args.network == 'CNN':
-                    data, target = Variable(data), Variable(target)
-                else:
-                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-            else:
-                data, target = Variable(data), Variable(target)
+            data, target = load_minibatch(args, data, target)
 
             optimizer.zero_grad()
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
-            reconstr_err = args.loss_criterion(output, target)
+            if args.dataset in ('reducedrank_synthetic','tanh_synthetic'):
+                reconstr_err = args.loss_criterion(output, target)/2
+            else:
+                reconstr_err = args.loss_criterion(output, target)
+
             loss = reconstr_err + loss_prior  # this is the ELBO
             loss.backward()
             optimizer.step()
