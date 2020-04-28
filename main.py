@@ -166,7 +166,11 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                         output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
                     reconstr_err += args.loss_criterion(output, target)*0.5 #reduction is set to be 'mean' by default
 
-            reconstr_err_component = reconstr_err / args.epsilon_mc
+            if args.dataset in ('reducedrank_synthetic','tanh_synthetic'):
+                reconstr_err_component = reconstr_err / (2*args.epsilon_mc)
+            else:
+                reconstr_err_component = reconstr_err / args.epsilon_mc
+
             discriminator_err_component = torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index] * args.n)
             loss_primal = reconstr_err_component + discriminator_err_component
             loss_primal.backward(retain_graph=True)
@@ -312,29 +316,18 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
-            if args.dataset == 'MNIST-binary':
-                for ind, y_val in enumerate(target):
-                    target[ind] = 0 if y_val < 5 else 1
-
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-
-            if args.dataset in ('MNIST', 'MNIST-binary'):
-                if args.network == 'CNN':
-                    data, target = Variable(data), Variable(target)
-                else:
-                    data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
-            else:
-                data, target = Variable(data), Variable(target)
+            data, target = load_minibatch(args, data, target)
 
             optimizer.zero_grad()
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
+            
             if args.dataset == 'lr_synthetic':
                 reconstr_err = args.loss_criterion(output, target)
             elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
                 reconstr_err = args.loss_criterion(output, target)*0.5
+            
             loss = reconstr_err + loss_prior  # this is the ELBO
             loss.backward()
             optimizer.step()
@@ -792,10 +785,10 @@ def main():
     parser.add_argument('--beta_auto_oracle', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (oracle) range of betas based on sample size')
 
-    parser.add_argument('--betasbegin', type=float, default=0.1,
+    parser.add_argument('--betasbegin', type=float, default=0.5,
                         help='where beta range should begin')
 
-    parser.add_argument('--betasend', type=float, default=2,
+    parser.add_argument('--betasend', type=float, default=1.5,
                         help='where beta range should end')
 
     parser.add_argument('--betalogscale', type=str, default='true',
@@ -975,7 +968,6 @@ def main():
             "mean RLCT estimates": RLCT_estimates.mean(),
             "std RLCT estimates": RLCT_estimates.std()
         })
-    print(results)
 
     # just dump performance metrics to wandb, it already saves configuration
     if args.wandb_on:
