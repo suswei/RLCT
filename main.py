@@ -779,10 +779,10 @@ def main():
     parser.add_argument('--beta_auto_oracle', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (oracle) range of betas based on sample size')
 
-    parser.add_argument('--betasbegin', type=float, default=0.1,
+    parser.add_argument('--betasbegin', type=float, default=0.5,
                         help='where beta range should begin')
 
-    parser.add_argument('--betasend', type=float, default=2,
+    parser.add_argument('--betasend', type=float, default=1.5,
                         help='where beta range should end')
 
     parser.add_argument('--betalogscale', type=str, default='true',
