@@ -76,7 +76,7 @@ class Generator(nn.Module):
 
 
 # TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and ivi.py
-def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
+def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath):
 
     # instantiate generator and discriminator
     G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G, args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
@@ -247,7 +247,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     plt.legend(('primal loss (train)', 'primal loss (validation)', 'reconstr err component (train)', 'reconstr err component (valid)', 'discriminator err component'), loc='center right', fontsize=16)
     plt.xlabel('epoch', fontsize=16)
     plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
     plt.close()
 
     plt.figure(figsize=(10, 7))
@@ -259,13 +258,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index):
     plt.legend(('reconstr err component', 'discriminator err component','primal loss'), loc='upper right', fontsize=16)
     plt.xlabel('epochs*batches (minibatches)', fontsize=16)
     plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+    plt.savefig('./{}/reconsterr_derr_minibatch_betaind{}.png'.format(saveimgpath, beta_index))
     plt.close()
 
     return G
 
 
-def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True):
+def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, saveimgpath):
 
 
     # retrieve model
@@ -380,7 +379,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
                 'reconstr err component (valid)', 'loss prior component'), loc='center right', fontsize=16)
     plt.xlabel('epoch', fontsize=16)
     plt.title('beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/primal_loss_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+    plt.savefig('./{}/primal_loss_betaind{}.png'.format(saveimgpath, beta_index))
     plt.close()
 
     plt.figure(figsize=(10, 7))
@@ -391,7 +390,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=T
     plt.legend(('reconstr err component', 'loss prior component', 'loss'), loc='upper right',fontsize=16)
     plt.xlabel('epochs*batches (minibatches)', fontsize=16)
     plt.title('training_set, beta = {}'.format(args.betas[beta_index]), fontsize=18)
-    plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/reconsterr_derr_minibatch_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+    plt.savefig('./{}/reconsterr_derr_minibatch_betaind{}.png'.format(saveimgpath, beta_index))
     plt.close()
 
     return var_model
@@ -463,7 +462,7 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
 # Also return approximate inference estimate of var_w^\beta [nL_n(w)]: 1/R \sum_{r=1}^R [nL_n(w_r^*)]^2 - [ 1/R \sum_{r=1}^R nL_n(w_r^*)]^2
-def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index):
+def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index, saveimgpath):
 
     model, w_dim = retrieve_model(args)
     args.w_dim = w_dim
@@ -477,7 +476,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
     if args.VItype == 'implicit':
 
-        G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index)
+        G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
 
         # visualize generator G
         eps = torch.randn(1000,args.epsilon_dim)
@@ -493,7 +492,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
             plt.figure(figsize=(16, 10))
             ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
             plt.title('tsne view: w sampled from generator G: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-            plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_G_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+            plt.savefig('./{}/w_sampled_from_G_betaind{}.png'.format(saveimgpath, beta_index))
             plt.close()
 
         my_list = range(args.R)
@@ -504,7 +503,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
     elif args.VItype == 'explicit':
 
-        var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose=True)
+        var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, True, saveimgpath)
 
         # form sample object from variational distribution r
         sample = pyvarinf.Sample(var_model=var_model)
@@ -539,7 +538,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
             plt.figure(figsize=(16, 10))
             ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
             plt.title('tsne view: w sampled from explicit VI posterior: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-            plt.savefig('./{}_sanity_check/taskid{}/img/mc{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(args.VItype, args.taskid, mc, beta_index))
+            plt.savefig('./{}/w_sampled_from_explicitVIposterior_betaind{}.png'.format(saveimgpath, beta_index))
             plt.close()
 
         # draws R samples {w_1,\ldots,w_R} from r_\theta^\beta (var_model) and returns \frac{1}{R} \sum_{i=1}^R [nL_n(w_i}]
@@ -574,7 +573,7 @@ def lambda_thm4(args, kwargs):
 
         temperedNLL_perMC_perBeta = np.empty(0)
         for beta_index in range(args.betas.shape[0]):
-            temp, _, _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
+            temp, _, _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index, path)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         # least squares fit for lambda
@@ -611,25 +610,24 @@ def lambda_thm4average(args, kwargs):
 
         for mc in range(0, args.MCs):
 
-            path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+            path = './{}_sanity_check/taskid{}/img/beta{}/mc{}'.format(args.VItype, args.taskid, beta, mc)
             if not os.path.exists(path):
                 os.makedirs(path)
 
             # draw new training-testing split
             train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
-            temp,_,_ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
+            temp,_,_ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index, path)
             temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
 
         temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
 
         print('Finishing beta {}'.format(beta))
 
+    path = './{}_sanity_check/taskid{}/img/'.format(args.VItype, args.taskid)
+    if not os.path.exists(path):
+        os.makedirs(path)
 
-    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta)
-    plt.title("multiple MC realisation")
-    plt.xlabel("1/beta")
-    plt.ylabel("implicit VI estimate of E_{D_n} E^beta_w [nL_n(w)]")
-    RLCT_estimate_robust, RLCT_estimate_OLS = lsfit_lambda(temperedNLL_perMC_perBeta, args)
+    RLCT_estimate_robust, RLCT_estimate_OLS = lsfit_lambda(temperedNLL_perBeta, args, path)
 
     # each RLCT estimate is one elment array
     return RLCT_estimate_robust, RLCT_estimate_OLS
@@ -654,7 +652,7 @@ def lambda_cor3(args, kwargs):
             beta = args.betas[beta_index]
             beta1 = beta
             beta2 = beta+0.05/np.log(args.n)
-            _, _, nlls = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index)
+            _, _, nlls = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, beta_index, path)
 
             lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
             lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
@@ -681,7 +679,7 @@ def varTI(args, kwargs):
 
         # draw new training-testing split
         train_loader, valid_loader, test_loader, input_dim, output_dim, loss, true_RLCT = get_dataset_by_id(args, kwargs)
-        _, var_nll , _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, 0)
+        _, var_nll , _ = approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim, args, mc, 0, path)
         RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
         print('MC: {} (beta)^2 Var_w^\beta nL_n(w): {:.2f}'.format(mc, var_nll/(np.log(args.n)**2)))
 
@@ -718,12 +716,6 @@ def main():
 
     parser.add_argument('--batchsize', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 10)')
-
-
-    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
-                        help='which asymptotic characterisation of lambda to use',
-                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
-
 
 
     # variational inference
@@ -769,13 +761,23 @@ def main():
                         help='SGD momentum (default: 0.5)')
 
 
-    # about those beta's
+    # asymptotics
+
+    parser.add_argument('--elasticnet_alpha', type=float, default=0.5,
+                        help='penalty factor for elastic net in lsfit of lambda, 0.0 for ols and 1.0 for elastic net')
+
+    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
+                        help='which asymptotic characterisation of lambda to use',
+                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
 
     parser.add_argument('--beta_auto_liberal', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (liberal) range of betas based on sample size')
 
     parser.add_argument('--beta_auto_conservative', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (conservative) range of betas based on sample size')
+
+    parser.add_argument('--beta_auto_oracle', action="store_true", default=False,
+                        help='flag to turn ON calculate optimal (oracle) range of betas based on sample size')
 
     parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
@@ -896,13 +898,21 @@ def main():
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(w_dim * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(w_dim * np.log(args.n))),
                                  args.numbetas)
+
+    elif args.beta_auto_oracle:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions, for the "liberal" setting,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2*d/2*\log n)), 1/log(n)(1 + 1/\sqrt(2*d/2*\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2*true_RLCT * np.log(args.n))),
+                                 1 / np.log(args.n) * (1 + 1 / np.sqrt(2*true_RLCT * np.log(args.n))),
+                                 args.numbetas)
+
     else:
         args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
         if args.betalogscale == 'true':
             args.betas = 1/np.linspace(np.log(args.n)/args.betasbegin, np.log(args.n)/args.betasend, args.numbetas)
 
     print(vars(args))
-
 
     if args.lambda_asymptotic == 'thm4':
 
@@ -943,11 +953,11 @@ def main():
 
         RLCT_estimate_robust, RLCT_estimate_OLS = lambda_thm4average(args, kwargs)
         results = dict({
-            "true_RLCT": true_RLCT,
-            "d on 2": w_dim/2,
-            "RLCT estimate (robust)": RLCT_estimate_robust,
-            "RLCT estimate (OLS)": RLCT_estimate_OLS
-        })
+            "true_RLCT": [true_RLCT],
+            "d on 2": [w_dim/2],
+            "RLCT estimate (robust)": [RLCT_estimate_robust],
+            "RLCT estimate (OLS)": [RLCT_estimate_OLS]
+        }) # since all scalar, need to listify to avoid error in from_dict
 
     elif args.lambda_asymptotic == 'cor3':
 
@@ -971,14 +981,18 @@ def main():
             "std RLCT estimates": RLCT_estimates.std()
         })
 
+    print(results)
+
+    # just dump performance metrics to wandb, it already saves configuration
+    if args.wandb_on:
+        wandb.log(results)
+
+    # save locally
     path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
     with open('./{}_sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.VItype, args.taskid), 'wb') as f:
         pickle.dump(results, f)
-
-    print(results)
-
     pd.DataFrame.from_dict(results).to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
 
 if __name__ == "__main__":
