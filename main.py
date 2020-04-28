@@ -397,7 +397,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
 
 # TODO: approxinf_nll_implicit and approxinf_nll_explicit should eventually be merged.
-# Draw w^* from generator G and return nL_n(w^*) on train_loader
+# Draw w^* from generator G and evaluate nL_n(w^*) on train_loader
 def approxinf_nll_implicit(r, train_loader, G, model, args):
 
     G.eval()
@@ -413,7 +413,7 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             a_params = w_sampled_from_G[0, 0:(args.input_dim * args.H)].reshape(args.H, args.input_dim)
             b_params = w_sampled_from_G[0, (args.input_dim * args.H):].reshape(args.output_dim, args.H)
 
-        loss = np.empty(0)
+        nll = np.empty(0)
         for batch_idx, (data, target) in enumerate(train_loader):
 
             data, target = load_minibatch(args, data, target)
@@ -427,16 +427,15 @@ def approxinf_nll_implicit(r, train_loader, G, model, args):
             elif args.dataset == 'reducedrank_synthetic':
                 output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
 
-            temp = args.loss_criterion(output, target)*len(target) #get sum loss
-            loss = np.append(loss, np.array(temp.detach().cpu().numpy()))
+            nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
+            nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
     if args.dataset == 'lr_sythetic':
-        return loss.sum()
+        return nll.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)*args.n+loss.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)+nll.sum()/2
 
-
-# Draws w^* by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
+# w^* is drawn by calling sample.draw(), this function evaluates nL_n(w^*) on train_loader
 def approxinf_nll_explicit(r, train_loader, sample, args):
 
     if args.dataset in ['tanh_synthetic','reducedrank_synthetic']:
@@ -454,10 +453,10 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             loss = np.append(loss, np.array(MSEloss(output, target).detach().cpu().numpy()))
 
-    if args.dataset == 'lr_sythetic':
+    if args.dataset == 'lr_synthetic':
         return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        return target.shape[1]/2*np.log(2*np.pi)*args.n+loss.sum()/2
+        return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)]:  1/R \sum_{r=1}^R nL_n(w_r^*)
@@ -549,6 +548,7 @@ def approxinf_nll(train_loader, valid_loader, test_loader, input_dim, output_dim
 
 
     approxinf_nlls_array = np.asarray(approxinf_nlls)
+    print(approxinf_nlls_array)
     mean_nlls = approxinf_nlls_array.mean()
     var_nlls = (approxinf_nlls_array**2).mean() - (mean_nlls)**2
     return mean_nlls, var_nlls, approxinf_nlls_array
@@ -890,6 +890,8 @@ def main():
         # since U_n is N(0,1) under certain conditions,
         # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
         args.betas = np.linspace(1/np.log(args.n)*(1 - 1/np.sqrt(2*np.log(args.n))),1/np.log(args.n)*(1 + 1/np.sqrt(2*np.log(args.n))),args.numbetas)
+        args.betasbegin = 1 - 1/np.sqrt(2*np.log(args.n))
+        args.betasend = 1 + 1/np.sqrt(2*np.log(args.n))
 
     elif args.beta_auto_liberal:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
@@ -898,6 +900,8 @@ def main():
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(w_dim * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(w_dim * np.log(args.n))),
                                  args.numbetas)
+        args.betasbegin = 1 - 1 / np.sqrt(w_dim * np.log(args.n))
+        args.betasend = 1 + 1 / np.sqrt(w_dim * np.log(args.n))
 
     elif args.beta_auto_oracle:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
@@ -906,7 +910,6 @@ def main():
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2*true_RLCT * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(2*true_RLCT * np.log(args.n))),
                                  args.numbetas)
-
     else:
         args.betas = 1/np.linspace(1/args.betasbegin, 1/args.betasend, args.numbetas)
         if args.betalogscale == 'true':
@@ -916,7 +919,6 @@ def main():
 
     if args.lambda_asymptotic == 'thm4':
 
-        # TODO: results should just be results, configuration should be dumped completely
         RLCT_estimates_robust, RLCT_estimates_OLS = lambda_thm4(args, kwargs)
         results = dict({
             "true_RLCT": true_RLCT,
@@ -927,26 +929,6 @@ def main():
             "RLCT estimates (OLS)": RLCT_estimates_OLS,
             "mean RLCT estimates (OLS)": RLCT_estimates_OLS.mean(),
             "std RLCT estimates (OLS)": RLCT_estimates_OLS.std(),
-            "dataset" : args.dataset,
-            "syntheticsamplesize": args.syntheticsamplesize,
-            "VItype" : args.VItype,
-            "network": args.network,
-            "epochs" : args.epochs,
-            "batchsize" : args.batchsize,
-            "betasbegin" : args.betasbegin,
-            "betasend" : args.betasend,
-            "betalogscale" : args.betalogscale,
-            "n_hidden_D" : args.n_hidden_D,
-            "num_hidden_layers_D" : args.num_hidden_layers_D,
-            "n_hidden_G" : args.n_hidden_G,
-            "num_hidden_layers_G" : args.num_hidden_layers_G,
-            "lambda_asymptotic" : args.lambda_asymptotic,
-            "dpower" : args.dpower,
-            "MCs" : args.MCs,
-            "R" : args.R,
-            "lr_primal" : args.lr_primal,
-            "lr_dual" : args.lr_dual,
-            "lr" : args.lr
         })
 
     elif args.lambda_asymptotic == 'thm4_average':
@@ -980,6 +962,7 @@ def main():
             "mean RLCT estimates": RLCT_estimates.mean(),
             "std RLCT estimates": RLCT_estimates.std()
         })
+    print(results)
 
     print(results)
 
@@ -991,9 +974,24 @@ def main():
     path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
+    '''
     with open('./{}_sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.VItype, args.taskid), 'wb') as f:
         pickle.dump(results, f)
-    pd.DataFrame.from_dict(results).to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
+    '''
+
+    args_dict = vars(args)
+    if args.dataset == 'lr_synthetic':
+        for key in ['w_0', 'b', 'loss_criterion', 'model', 'betas']:
+            del args_dict[key]
+    if args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+        for key in ['a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
+            del args_dict[key]
+
+    results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
+
+    results_args.to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
+
+    
 
 if __name__ == "__main__":
     main()
