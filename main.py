@@ -962,7 +962,6 @@ def main():
             "mean RLCT estimates": RLCT_estimates.mean(),
             "std RLCT estimates": RLCT_estimates.std()
         })
-    print(results)
 
     print(results)
 
@@ -974,10 +973,6 @@ def main():
     path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
-    '''
-    with open('./{}_sanity_check/taskid{}/configuration_plus_results.pkl'.format(args.VItype, args.taskid), 'wb') as f:
-        pickle.dump(results, f)
-    '''
 
     args_dict = vars(args)
     if args.dataset == 'lr_synthetic':
