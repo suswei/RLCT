@@ -164,7 +164,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                         output = torch.matmul(torch.tanh(torch.matmul(data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                     else:
                         output = torch.matmul(torch.matmul(data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
-                    reconstr_err += args.loss_criterion(output, target) #reduction is set to be 'mean' by default
+                    reconstr_err += args.loss_criterion(output, target)*0.5 #reduction is set to be 'mean' by default
 
             if args.dataset in ('reducedrank_synthetic','tanh_synthetic'):
                 reconstr_err_component = reconstr_err / (2*args.epsilon_mc)
@@ -209,13 +209,15 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 if args.dataset == 'tanh_synthetic':
                    valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
+                   valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item() * 0.5)
                 elif args.dataset =='lr_synthetic':
                     output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(valid_data.shape[0], 1)), 1)
                     valid_output = F.log_softmax(output_cat_zero, dim=1)
+                    valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
                 elif args.dataset == 'reducedrank_synthetic':
                    valid_output = torch.matmul(torch.matmul(valid_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
-                valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
+                   valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item()*0.5)
             valid_loss_one = np.average(valid_loss_minibatch) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n)
             scheduler_G.step(valid_loss_one)
             valid_loss_epoch.append(valid_loss_one)
@@ -227,13 +229,15 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 if args.dataset == 'tanh_synthetic':
                     train_output = torch.matmul(torch.tanh(torch.matmul(train_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
+                    train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item()*0.5)
                 elif args.dataset == 'lr_synthetic':
                     output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
                     output_cat_zero = torch.cat((output, torch.zeros(train_data.shape[0], 1)), 1)
                     train_output = F.log_softmax(output_cat_zero, dim=1)
+                    train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
                 elif args.dataset == 'reducedrank_synthetic':
                     train_output = torch.matmul(torch.matmul(train_data, torch.transpose(a_params, 0, 1)), torch.transpose(b_params, 0, 1))
-                train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
+                    train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item()*0.5)
             train_loss_epoch.append(np.average(train_loss_minibatch2) + torch.mean(D(w_sampled_from_G)) / (args.betas[beta_index]  * args.n))
             train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
 
@@ -318,11 +322,12 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
-            if args.dataset in ('reducedrank_synthetic','tanh_synthetic'):
-                reconstr_err = args.loss_criterion(output, target)/2
-            else:
+            
+            if args.dataset == 'lr_synthetic':
                 reconstr_err = args.loss_criterion(output, target)
-
+            elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+                reconstr_err = args.loss_criterion(output, target)*0.5
+            
             loss = reconstr_err + loss_prior  # this is the ELBO
             loss.backward()
             optimizer.step()
@@ -344,7 +349,10 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 valid_output = var_model(valid_data)
-                valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
+                if args.dataset == 'lr_synthetic':
+                    valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
+                elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+                    valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item()*0.5)
             valid_loss_one = np.average(valid_loss_minibatch) + var_model.prior_loss() / (args.betas[beta_index] * args.n)
             scheduler.step(valid_loss_one)
             valid_loss_epoch.append(valid_loss_one)
@@ -355,7 +363,10 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 train_output = var_model(train_data)
-                train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
+                if args.dataset == 'lr_synthetic':
+                    train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
+                elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+                    train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item()*0.5)
             train_loss_epoch.append(np.average(train_loss_minibatch2)+var_model.prior_loss() / (args.betas[beta_index] * args.n))
             train_reconstr_err_epoch.append(np.average(train_loss_minibatch2))
 
@@ -958,8 +969,6 @@ def main():
             "std RLCT estimates": RLCT_estimates.std()
         })
 
-    print(results)
-
     # just dump performance metrics to wandb, it already saves configuration
     if args.wandb_on:
         wandb.log(results)
@@ -974,7 +983,7 @@ def main():
         for key in ['w_0', 'b', 'loss_criterion', 'model', 'betas']:
             del args_dict[key]
     if args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        for key in ['a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
+        for key in ['H', 'a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
             del args_dict[key]
 
     results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
