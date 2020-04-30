@@ -12,6 +12,7 @@ import math
 from torch.distributions.uniform import Uniform
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
+from matplotlib import pyplot as plt
 
 def get_dataset_by_id(args,kwargs):
 
@@ -86,7 +87,14 @@ def get_dataset_by_id(args,kwargs):
         output = torch.mm(X, args.w_0) + args.b
         output_cat_zero = torch.cat((output, torch.zeros(X.shape[0], 1)), 1)
         softmax_output = F.softmax(output_cat_zero, dim=1)
-        y = softmax_output.data.max(1)[1]  # get the index of the max probability
+        m = torch.distributions.bernoulli.Bernoulli(softmax_output[:,0])
+        y = m.sample()
+        y = y.type(torch.LongTensor) # otherwise torch nll_loss complains
+
+        # plt.plot(output.squeeze(dim=1).detach().numpy(), y.detach().numpy(), '.g')
+        # plt.plot(output.squeeze(dim=1).detach().numpy(),softmax_output[:,0].detach().numpy(),'.r')
+        # plt.title('synthetic logistic regression data: w^T x + b versus probabilities and Bernoulli(p)')
+        # plt.show()
 
         #The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = args.syntheticsamplesize
@@ -100,7 +108,7 @@ def get_dataset_by_id(args,kwargs):
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
 
         loss_criterion = nn.NLLLoss(reduction="mean")
-        true_RLCT = (input_dim + 1)/2
+        trueRLCT = (input_dim + 1)/2
 
     elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
@@ -130,7 +138,7 @@ def get_dataset_by_id(args,kwargs):
         loss_criterion = nn.MSELoss(reduction='mean')
 
         max_integer = int(math.sqrt(args.H))
-        true_RLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
+        trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
 
     elif args.dataset == 'reducedrank_synthetic':
         m = MultivariateNormal(torch.zeros(args.H + 3), torch.eye(args.H + 3)) #the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
@@ -154,12 +162,12 @@ def get_dataset_by_id(args,kwargs):
         input_dim = X.shape[1]
         output_dim = y.shape[1]
         loss_criterion = nn.MSELoss(reduction='mean')
-        true_RLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
+        trueRLCT = (output_dim * args.H - args.H ** 2 + input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
 
     else:
         print('Not a valid dataset name. See options in dataset-factory')
 
-    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, true_RLCT
+    return train_loader, valid_loader, test_loader, input_dim, output_dim, loss_criterion, trueRLCT
 
 
 

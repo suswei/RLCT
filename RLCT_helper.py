@@ -13,8 +13,40 @@ from matplotlib import pyplot as plt
 import models
 
 
-def count_parameters(model):
+def set_betas(args):
+    if args.beta_auto_conservative:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2 * np.log(args.n))),
+                                 1 / np.log(args.n) * (1 + 1 / np.sqrt(2 * np.log(args.n))), args.numbetas)
+        args.betasbegin = 1 - 1 / np.sqrt(2 * np.log(args.n))
+        args.betasend = 1 + 1 / np.sqrt(2 * np.log(args.n))
 
+    elif args.beta_auto_liberal:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions, for the "liberal" setting,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2*d/2*\log n)), 1/log(n)(1 + 1/\sqrt(2*d/2*\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(args.w_dim * np.log(args.n))),
+                                 1 / np.log(args.n) * (1 + 1 / np.sqrt(args.w_dim * np.log(args.n))),
+                                 args.numbetas)
+        args.betasbegin = 1 - 1 / np.sqrt(args.w_dim * np.log(args.n))
+        args.betasend = 1 + 1 / np.sqrt(args.w_dim * np.log(args.n))
+
+    elif args.beta_auto_oracle:
+        # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
+        # since U_n is N(0,1) under certain conditions, for the "liberal" setting,
+        # let's consider beta range [1/log(n)(1 - 1/\sqrt(2*d/2*\log n)), 1/log(n)(1 + 1/\sqrt(2*d/2*\log n)) ], taking the worst case for the std for U_n
+        args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2 * args.trueRLCT * np.log(args.n))),
+                                 1 / np.log(args.n) * (1 + 1 / np.sqrt(2 * args.trueRLCT * np.log(args.n))),
+                                 args.numbetas)
+    else:
+        args.betas = 1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas)
+        if args.betalogscale == 'true':
+            args.betas = 1 / np.linspace(np.log(args.n) / args.betasbegin, np.log(args.n) / args.betasend, args.numbetas)
+
+
+def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
@@ -110,6 +142,7 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
 
     return robust_slope_estimate, ols_slope_estimate
 
+
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
 def test(epoch, test_loader, model, args, verbose=False):
 
@@ -130,6 +163,7 @@ def test(epoch, test_loader, model, args, verbose=False):
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
+
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
