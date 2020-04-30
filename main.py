@@ -409,10 +409,17 @@ def sample_weights_from_explicitVI(sample, args):
     for draw_index in range(1000):
         sample.draw()
         if args.dataset == 'lr_synthetic':
+
+            # temp = sample.var_model.dico['linear']['weight']
+            # weight = temp.mean + (1 + temp.rho.exp()).log() * torch.randn(temp.mean.shape)
+            # temp = sample.var_model.dico['linear']['bias']
+            # bias = temp.mean + (1 + temp.rho.exp()).log() * torch.randn(temp.mean.shape)
+
             weight_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[0]
             bias_mean_rho_eps = list(list(sample.var_model.dico.values())[0].values())[1]
             weight = (weight_mean_rho_eps.mean + (1 + weight_mean_rho_eps.rho.exp()).log() * weight_mean_rho_eps.eps)[0,:].reshape(1, weight_mean_rho_eps.mean.shape[1])  # there are two probability output for each category, we only need the parameters for one category
             bias = (bias_mean_rho_eps.mean + (1 + bias_mean_rho_eps.rho.exp()).log() * bias_mean_rho_eps.eps)[0].reshape(1, 1)
+
             weight_bias = torch.cat((weight, bias), 1)
             sampled_weight = torch.cat((sampled_weight, weight_bias), 0)
 
