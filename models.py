@@ -36,9 +36,9 @@ class FFrelu(nn.Module):
 
 
 class LogisticRegression(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, bias=True):
         super(LogisticRegression, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
+        self.linear = nn.Linear(input_dim, output_dim, bias=bias)
 
     def forward(self, x):
         x = self.linear(x)

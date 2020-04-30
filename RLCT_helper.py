@@ -14,6 +14,7 @@ import models
 
 
 def set_betas(args):
+
     if args.beta_auto_conservative:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
         # since U_n is N(0,1) under certain conditions,
@@ -40,9 +41,10 @@ def set_betas(args):
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2 * args.trueRLCT * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(2 * args.trueRLCT * np.log(args.n))),
                                  args.numbetas)
+
     else:
         args.betas = 1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas)
-        if args.betalogscale == 'true':
+        if args.betalogscale:
             args.betas = 1 / np.linspace(np.log(args.n) / args.betasbegin, np.log(args.n) / args.betasend, args.numbetas)
 
 
@@ -57,10 +59,9 @@ def retrieve_model(args):
         model = models.CNN(output_dim=args.output_dim)
         print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=args.input_dim, output_dim=args.output_dim)
+        model = models.LogisticRegression(input_dim=args.input_dim, output_dim=args.output_dim,bias=args.bias)
     if args.network == 'FFrelu':
         model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
     if args.network == 'tanh':
         model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
     if args.network == 'reducedrank':
@@ -69,9 +70,9 @@ def retrieve_model(args):
     # TODO: count parameters automatically
     if args.network == 'logistic':
         if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
-            w_dim = (args.input_dim + 1)
+            w_dim = (args.input_dim + 1*args.bias)
         elif args.dataset == 'MNIST':
-            w_dim = (args.input_dim + 1) * 9 / 2
+            w_dim = (args.input_dim + 1*args.bias) * 9 / 2
     elif args.network in ['tanh', 'reducedrank']:
         w_dim = (args.input_dim + args.output_dim)*args.H
     else:
