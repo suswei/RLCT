@@ -38,11 +38,13 @@ class FFrelu(nn.Module):
 class LogisticRegression(nn.Module):
     def __init__(self, input_dim, output_dim, bias=True):
         super(LogisticRegression, self).__init__()
+        output_dim = 1
         self.linear = nn.Linear(input_dim, output_dim, bias=bias)
 
     def forward(self, x):
         x = self.linear(x)
-        return F.log_softmax(x, dim=1)
+        # return F.log_softmax(x, dim=1)
+        return torch.sigmoid(x)
 
 class tanh(nn.Module):
     def __init__(self, input_dim, output_dim, H):
