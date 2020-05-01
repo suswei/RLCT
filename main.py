@@ -332,6 +332,9 @@ def train_explicitVI(train_loader,valid_loader, args, mc, beta_index, verbose, s
             optimizer.zero_grad()
             # var_model draw a sample of the network parameter and then applies the network with the sampled weights
             output = var_model(data)
+            # when applying var_model, can see var_model.dico epsilon is always zero, this means E_variational L_n(w) is estimated at L_n(mean(dataset))
+            # prior_loss takes into account the var_model.dico['linear']['weight'].rho
+
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
             
             if args.dataset == 'lr_synthetic':
@@ -417,6 +420,7 @@ def sample_weights_from_explicitVI(sample, args):
 
     sampled_weight = torch.empty((0, args.w_dim))
 
+    # TODO: no for loop is necessary actually
     for draw_index in range(100):
 
         if args.dataset == 'lr_synthetic':
@@ -512,12 +516,13 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
         MSEloss = nn.MSELoss(reduction='sum')
     loss = np.empty(0)
 
-    sample.draw()
 
     for batch_idx, (data, target) in enumerate(train_loader):
 
         data, target = load_minibatch(args, data, target)
+        sample.draw()
         output = sample(data)
+        # can check at this point sample.var_model.dico to see the epsilon parameters change due to sample.draw
         if args.dataset == 'lr_synthetic':
             loss = np.append(loss, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
@@ -679,13 +684,13 @@ def main():
                         help='name of network in models.py (default: logistic)',
                         choices=['FFrelu','CNN','logistic', 'tanh', 'reducedrank'])
 
-    parser.add_argument('bias',action='store_true', help='turn on if model should have bias terms') #only applies to logistic right now, for purpose of testing lr_synthetic
+    parser.add_argument('--bias',action='store_true', default=False, help='turn on if model should have bias terms') #only applies to logistic right now, for purpose of testing lr_synthetic
 
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
-                        help='number of epochs to train (default: 100)')
+                        help='number of epochs to train (default: 200)')
 
     parser.add_argument('--batchsize', type=int, default=100, metavar='N',
-                        help='input batch size for training (default: 10)')
+                        help='input batch size for training (default: 100)')
 
 
     # variational inference
@@ -780,7 +785,7 @@ def main():
                         help='use tsne visualization of generator')
 
     parser.add_argument('--posterior_viz', action="store_true",
-                        help='should only use with lr_synthetic and three total parameters including bias')
+                        help='should only use with lr_synthetic and w_dim = 2, bias = False')
 
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -820,6 +825,11 @@ def main():
     if args.dataset in ['lr_synthetic','tanh_synthetic','reducedrank_synthetic']:
         if args.w_dim is None and args.dpower is None:
             parser.error('w_dim or dpower is necessary for synthetic data')
+        if args.posterior_viz:
+            if args.w_dim is None or (args.bias==True):
+                parser.error('posterior visualisation only supports args.w_dim = 2 and args.bias = False')
+            if args.dataset not in ['lr_synthetic']:
+                parser.error('posterior visualisation only supports lr_synthetic at the moment')
 
     # set true network weights for synthetic dataset
     if args.dataset == 'lr_synthetic':
@@ -842,7 +852,6 @@ def main():
         if args.posterior_viz:
             args.w_0 = torch.Tensor([[0.5], [1]])
             args.b = torch.tensor([0.0])
-            args.bias = False
 
     elif args.dataset == 'tanh_synthetic':
 
