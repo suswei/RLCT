@@ -2,9 +2,9 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 
-class CNN(nn.Module):
+class cnn(nn.Module):
     def __init__(self,output_dim):
-        super(CNN, self).__init__()
+        super(cnn, self).__init__()
         self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
         self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
         self.fc1 = nn.Linear(320, 50)
@@ -21,9 +21,9 @@ class CNN(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-class FFrelu(nn.Module):
+class ffrelu(nn.Module):
     def __init__(self,input_dim, output_dim):
-        super(FFrelu, self).__init__()
+        super(ffrelu, self).__init__()
         self.fc1 = nn.Linear(input_dim, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, output_dim)
@@ -34,16 +34,14 @@ class FFrelu(nn.Module):
         x = self.fc3(x)
         return F.log_softmax(x, dim=1)
 
-
-class LogisticRegression(nn.Module):
-    def __init__(self, input_dim, output_dim, bias=True):
-        super(LogisticRegression, self).__init__()
-        output_dim = 1
-        self.linear = nn.Linear(input_dim, output_dim, bias=bias)
+# for binary classification
+class logistic(nn.Module):
+    def __init__(self, input_dim, bias=True):
+        super(logistic, self).__init__()
+        self.linear = nn.Linear(input_dim, 1, bias=bias)
 
     def forward(self, x):
         x = self.linear(x)
-        # return F.log_softmax(x, dim=1)
         return torch.sigmoid(x)
 
 class tanh(nn.Module):

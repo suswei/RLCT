@@ -116,7 +116,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
         D.train()
         G.train()
 
-        if args.dataset == 'lr_synthetic':
+        if args.dataset == 'logistic_synthetic':
             correct = 0
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             training_sum_se = 0
@@ -146,7 +146,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
             reconstr_err = 0
             for i in range(args.epsilon_mc):  # loop over rows of w_sampled_from_G corresponding to different epsilons
 
-                if args.dataset == 'lr_synthetic':
+                if args.dataset == 'logistic_synthetic':
 
                     if args.bias:
                         A = w_sampled_from_G[i, 0:(args.w_dim - 1)]
@@ -187,7 +187,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
             primal_loss_minibatch.append(loss_primal.item())
 
             # minibatch logging on args.log_interval
-            if args.dataset == 'lr_synthetic':
+            if args.dataset == 'logistic_synthetic':
                 pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
                 correct += pred.eq(target.data).cpu().sum()
             elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
@@ -199,7 +199,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
                                100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
         # every epoch, log the following
-        if args.dataset == 'lr_synthetic':
+        if args.dataset == 'logistic_synthetic':
             print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(correct, args.n, 100. * correct / args.n))
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             print('\nTrain set: MSE: {} \n'.format(training_sum_se/args.n))
@@ -214,7 +214,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
                 if args.dataset == 'tanh_synthetic':
                    valid_output = torch.matmul(torch.tanh(torch.matmul(valid_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                    valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item() * 0.5)
-                elif args.dataset =='lr_synthetic':
+                elif args.dataset =='logistic_synthetic':
                     if args.bias:
                         output = torch.mm(valid_data, A.reshape(args.w_dim - 1, 1)) + b
                     else:
@@ -237,7 +237,7 @@ def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath
                 if args.dataset == 'tanh_synthetic':
                     train_output = torch.matmul(torch.tanh(torch.matmul(train_data, torch.transpose(a_params, 0, 1))), torch.transpose(b_params, 0, 1))
                     train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item()*0.5)
-                elif args.dataset == 'lr_synthetic':
+                elif args.dataset == 'logistic_synthetic':
                     if args.bias:
                         output = torch.mm(train_data, A.reshape(args.w_dim - 1, 1)) + b
                     else:
@@ -337,7 +337,7 @@ def train_explicitVI(train_loader,valid_loader, args, mc, beta_index, verbose, s
 
             loss_prior = var_model.prior_loss() / (args.betas[beta_index]*args.n)
             
-            if args.dataset == 'lr_synthetic':
+            if args.dataset == 'logistic_synthetic':
                 # reconstr_err = args.loss_criterion(output, target)
                 BCE_loss = torch.nn.BCELoss()
                 reconstr_err = BCE_loss(1-output, target.float())
@@ -365,7 +365,7 @@ def train_explicitVI(train_loader,valid_loader, args, mc, beta_index, verbose, s
             for valid_batch_id, (valid_data, valid_target) in enumerate(valid_loader):
                 valid_data, valid_target = load_minibatch(args, valid_data, valid_target)
                 valid_output = var_model(valid_data)
-                if args.dataset == 'lr_synthetic':
+                if args.dataset == 'logistic_synthetic':
                     # valid_loss_minibatch.append(args.loss_criterion(valid_output, valid_target).item())
                     BCE_loss = torch.nn.BCELoss()
                     valid_loss_minibatch.append(BCE_loss(1-valid_output, valid_target.float()).item())
@@ -381,7 +381,7 @@ def train_explicitVI(train_loader,valid_loader, args, mc, beta_index, verbose, s
             for train_batch_id, (train_data, train_target) in enumerate(train_loader):
                 train_data, train_target = load_minibatch(args, train_data, train_target)
                 train_output = var_model(train_data)
-                if args.dataset == 'lr_synthetic':
+                if args.dataset == 'logistic_synthetic':
                     # train_loss_minibatch2.append(args.loss_criterion(train_output, train_target).item())
                     BCE_loss = torch.nn.BCELoss()
                     train_loss_minibatch2.append(BCE_loss(1 - train_output, train_target.float()).item())
@@ -429,7 +429,7 @@ def sample_weights_from_explicitVI(sample, args):
     # TODO: no for loop is necessary actually
     for draw_index in range(100):
 
-        if args.dataset == 'lr_synthetic':
+        if args.dataset == 'logistic_synthetic':
 
             temp = sample.var_model.dico['linear']['weight']
             weight = temp.mean + (1 + temp.rho.exp()).log() * torch.randn(temp.mean.shape)
@@ -475,7 +475,7 @@ def approxinf_nll_implicit(r, train_loader, G, args):
         eps = randn((1, args.epsilon_dim), args.cuda)
         w_sampled_from_G = G(eps)
         w_dim = w_sampled_from_G.shape[1]
-        if args.dataset == 'lr_synthetic':
+        if args.dataset == 'logistic_synthetic':
             if args.bias:
                 A = w_sampled_from_G[0, 0:(w_dim - 1)]
                 b = w_sampled_from_G[0, w_dim - 1]
@@ -490,7 +490,7 @@ def approxinf_nll_implicit(r, train_loader, G, args):
         for batch_idx, (data, target) in enumerate(train_loader):
 
             data, target = load_minibatch(args, data, target)
-            if args.dataset == 'lr_synthetic':
+            if args.dataset == 'logistic_synthetic':
                 if args.bias:
                     output = torch.mm(data, A.reshape(w_dim - 1, 1)) + b
                 else:
@@ -507,7 +507,7 @@ def approxinf_nll_implicit(r, train_loader, G, args):
             nll_new = args.loss_criterion(output, target)*len(target) #get sum loss
             nll = np.append(nll, np.array(nll_new.detach().cpu().numpy()))
 
-    if args.dataset == 'lr_synthetic':
+    if args.dataset == 'logistic_synthetic':
         return nll.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         return target.shape[1]/2*np.log(2*np.pi)+nll.sum()/2
@@ -529,12 +529,12 @@ def approxinf_nll_explicit(r, train_loader, sample, args):
         sample.draw()
         output = sample(data)
         # can check at this point sample.var_model.dico to see the epsilon parameters change due to sample.draw
-        if args.dataset == 'lr_synthetic':
+        if args.dataset == 'logistic_synthetic':
             loss = np.append(loss, np.array(F.nll_loss(output, target, reduction="sum").detach().cpu().numpy()))
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
             loss = np.append(loss, np.array(MSEloss(output, target).detach().cpu().numpy()))
 
-    if args.dataset == 'lr_synthetic':
+    if args.dataset == 'logistic_synthetic':
         return loss.sum()
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         return target.shape[1]/2*np.log(2*np.pi)+loss.sum()/2
@@ -607,7 +607,7 @@ def approxinf_nll(train_loader,valid_loader,args, mc, beta_index, saveimgpath):
     args.epsilon_dim = args.w_dim
     args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
 
-    if args.dataset == 'lr_synthetic':
+    if args.dataset == 'logistic_synthetic':
         true_weight = torch.cat((args.w_0.reshape(1, args.input_dim), args.b.reshape(1, 1)), 1)
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
@@ -805,9 +805,9 @@ def main():
     parser.add_argument('--taskid', type=int, default=1000,
                         help='taskid from sbatch')
 
-    parser.add_argument('--dataset', type=str, default='lr_synthetic',
+    parser.add_argument('--dataset', type=str, default='logistic_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
-                        choices=['iris-binary', 'breastcancer-binary', 'MNIST-binary', 'MNIST','lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'])
+                        choices=['iris_binary', 'breastcancer_binary', 'mnist_binary', 'mnist','logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'])
 
     parser.add_argument('--syntheticsamplesize', type=int, default=100,
                         help='sample size of synthetic dataset')
@@ -820,7 +820,7 @@ def main():
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
-                        choices=['FFrelu','CNN','logistic', 'tanh', 'reducedrank'])
+                        choices=['ffrelu','cnn','logistic', 'tanh', 'reducedrank'])
 
     parser.add_argument('--bias',action='store_true', default=False, help='turn on if model should have bias terms') #only applies to logistic right now, for purpose of testing lr_synthetic
 
@@ -960,17 +960,17 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
-    if args.dataset in ['lr_synthetic','tanh_synthetic','reducedrank_synthetic']:
+    if args.dataset in ['logistic_synthetic','tanh_synthetic','reducedrank_synthetic']:
         if args.w_dim is None and args.dpower is None:
             parser.error('w_dim or dpower is necessary for synthetic data')
         if args.posterior_viz:
             if args.w_dim is None or (args.bias==True):
                 parser.error('posterior visualisation only supports args.w_dim = 2 and args.bias = False')
-            if args.dataset not in ['lr_synthetic']:
+            if args.dataset not in ['logistic_synthetic']:
                 parser.error('posterior visualisation only supports lr_synthetic at the moment')
 
     # set true network weights for synthetic dataset
-    if args.dataset == 'lr_synthetic':
+    if args.dataset == 'logistic_synthetic':
 
         if args.dpower is None:
             if args.bias:
@@ -1087,7 +1087,7 @@ def main():
         os.makedirs(path)
 
     args_dict = vars(args)
-    if args.dataset == 'lr_synthetic':
+    if args.dataset == 'logistic_synthetic':
         for key in ['w_0', 'b', 'loss_criterion', 'model', 'betas']:
             del args_dict[key]
     if args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:

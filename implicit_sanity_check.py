@@ -11,7 +11,7 @@ def main(taskid):
     if taskid in range(96):
         index = 1
         hyperparameter_config = {
-            'dataset': ['lr_synthetic'],
+            'dataset': ['logistic_synthetic'],
             'syntheticsamplesize': [1000, 5000, 10000, 20000],
             'VItype': ['implicit'],
             'epochs': [500],
@@ -88,7 +88,7 @@ def main(taskid):
         i = taskid - 96 - 96
     key, value = zip(*hyperparameter_experiments[i].items())
     dataset = value[0]
-    if dataset == 'lr_synthetic':
+    if dataset == 'logistic_synthetic':
         network = 'logistic'
     elif dataset == 'tanh_synthetic':
         network = 'tanh'

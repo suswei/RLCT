@@ -10,7 +10,7 @@ def main(taskid):
     if taskid in range(72):
         index = 1
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
+            'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [1000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -26,7 +26,7 @@ def main(taskid):
     elif (taskid-72) in range(72):
         index = 2
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
+            'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [5000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -42,7 +42,7 @@ def main(taskid):
     elif (taskid - 72 - 72) in range(72):
         index = 3
         hyperparameter_config = {
-            'dataset': ['lr_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network reducedrank --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
+            'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network reducedrank --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
             'syntheticsamplesize': [10000],
             'VItype': ['explicit'],
             'epochs': [500],
@@ -67,7 +67,7 @@ def main(taskid):
     key, value = zip(*hyperparameter_experiments[i].items())
 
     dataset = value[0]
-    if dataset == 'lr_synthetic':
+    if dataset == 'logistic_synthetic':
         network = 'logistic'
     elif dataset == 'tanh_synthetic':
         network = 'tanh'

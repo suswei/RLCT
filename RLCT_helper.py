@@ -1,20 +1,83 @@
 from __future__ import print_function
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-from statsmodels.regression.linear_model import OLS, GLS
-from statsmodels.tools.tools import add_constant
-from scipy.linalg import toeplitz
-import statsmodels.api as sm
+import models
 from sklearn.linear_model import ElasticNet
 from matplotlib import pyplot as plt
+from statsmodels.regression.linear_model import OLS, GLS
+from statsmodels.tools.tools import add_constant
 
-import models
+def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
+
+    # robust ls fit
+    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=args.elasticnet_alpha)
+    regr.fit((1 / args.betas).reshape(args.numbetas, 1), temperedNLL_perMC_perBeta)
+    robust_intercept_estimate = regr.intercept_
+    # slope_estimate = min(regr.coef_[0],args.w_dim/2)
+    robust_slope_estimate = regr.coef_[0]
+
+    # vanilla ols fit
+
+    ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
+    ols_intercept_estimate = ols_model.params[0]
+    # slope_estimate = min(ols_model.params[1],args.w_dim/2)
+    ols_slope_estimate = ols_model.params[1]
+
+    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta, label='nll beta')
+    plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-',
+             label='robust ols')
+    plt.plot(1 / args.betas, ols_intercept_estimate + ols_slope_estimate * 1 / args.betas, 'b-', label='vanilla ols')
+
+    plt.title("d_on_2 = {}, true lambda = {:.1f} "
+              "\n hat lambda robust = {:.1f}, hat lambda vanilla = {:.1f}"
+              .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
+    plt.xlabel("1/beta", fontsize=8)
+    plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
+    plt.legend()
+    plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
+    plt.show()
+
+    return robust_slope_estimate, ols_slope_estimate
+
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def retrieve_model(args):
+    # M is the input dimension, H is hidden unit number, N is the output dimension for 'tanh_synthetic' and 'reducedrank_synthetic'
+    # retrieve model
+    if args.network == 'cnn':
+        model = models.cnn(output_dim=args.output_dim)
+        print('Error: implicit VI currently only supports logistic regression')
+    if args.network == 'logistic':
+        model = models.logistic(input_dim=args.input_dim, bias=args.bias)
+    if args.network == 'ffrelu':
+        model = models.ffrelu(input_dim=args.input_dim, output_dim=args.output_dim)
+    if args.network == 'tanh':
+        model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
+    if args.network == 'reducedrank':
+        model = models.reducedrank(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
+
+    # TODO: count parameters automatically
+    if args.network == 'logistic':
+        if args.dataset in ('mnist_binary', 'iris_binary', 'breastcancer_binary', 'logistic_synthetic'):
+            w_dim = (args.input_dim + 1 * args.bias)
+        elif args.dataset == 'mnist':
+            w_dim = (args.input_dim + 1 * args.bias) * 9 / 2
+    elif args.network in ['tanh', 'reducedrank']:
+        w_dim = (args.input_dim + args.output_dim) * args.H
+    else:
+        w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim
+
+    return model, w_dim
 
 
 def set_betas(args):
-
     if args.beta_auto_conservative:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
         # since U_n is N(0,1) under certain conditions,
@@ -45,54 +108,21 @@ def set_betas(args):
     else:
         args.betas = 1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas)
         if args.betalogscale:
-            args.betas = 1 / np.linspace(np.log(args.n) / args.betasbegin, np.log(args.n) / args.betasend, args.numbetas)
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-def retrieve_model(args):
-    #M is the input dimension, H is hidden unit number, N is the output dimension for 'tanh_synthetic' and 'reducedrank_synthetic'
-    # retrieve model
-    if args.network == 'CNN':
-        model = models.CNN(output_dim=args.output_dim)
-        print('Error: implicit VI currently only supports logistic regression')
-    if args.network == 'logistic':
-        model = models.LogisticRegression(input_dim=args.input_dim, output_dim=args.output_dim,bias=args.bias)
-    if args.network == 'FFrelu':
-        model = models.FFrelu(input_dim=args.input_dim, output_dim=args.output_dim)
-    if args.network == 'tanh':
-        model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-    if args.network == 'reducedrank':
-        model = models.reducedrank(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
-
-    # TODO: count parameters automatically
-    if args.network == 'logistic':
-        if args.dataset in ('MNIST-binary', 'iris-binary', 'breastcancer-binary', 'lr_synthetic'):
-            w_dim = (args.input_dim + 1*args.bias)
-        elif args.dataset == 'MNIST':
-            w_dim = (args.input_dim + 1*args.bias) * 9 / 2
-    elif args.network in ['tanh', 'reducedrank']:
-        w_dim = (args.input_dim + args.output_dim)*args.H
-    else:
-        w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim
-
-    return model, w_dim
+            args.betas = 1 / np.linspace(np.log(args.n) / args.betasbegin, np.log(args.n) / args.betasend,
+                                         args.numbetas)
 
 
 # perform some data massaging to get right dimensions
-def load_minibatch(args,data,target):
-
-    if args.dataset == 'MNIST-binary':
+def load_minibatch(args, data, target):
+    if args.dataset == 'mnist_binary':
         for ind, y_val in enumerate(target):
             target[ind] = 0 if y_val < 5 else 1
 
     if args.cuda:
         data, target = data.cuda(), target.cuda()
 
-    if args.dataset in ('MNIST', 'MNIST-binary'):
-        if args.network == 'CNN':
+    if args.dataset in ('mnist', 'mnist_binary'):
+        if args.network == 'cnn':
             data, target = Variable(data), Variable(target)
         else:
             data, target = Variable(data.view(-1, 28 * 28)), Variable(target)
@@ -103,7 +133,6 @@ def load_minibatch(args,data,target):
 
 
 def randn(shape, device):
-
     if device == False:
         # return torch.randn(*shape).to(device)
         return torch.randn(*shape)
@@ -111,37 +140,74 @@ def randn(shape, device):
         return torch.cuda.FloatTensor(*shape).normal_()
 
 
-def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
+def weights_to_dict(args, sampled_weights):
+    '''
 
-    # robust ls fit
-    regr = ElasticNet(random_state=0,fit_intercept=True, alpha=args.elasticnet_alpha)
-    regr.fit((1 / args.betas).reshape(args.numbetas,1), temperedNLL_perMC_perBeta)
-    robust_intercept_estimate = regr.intercept_
-    # slope_estimate = min(regr.coef_[0],args.w_dim/2)
-    robust_slope_estimate = regr.coef_[0]
+    :param args:
+    :param sampled_weights: [# of sampled weights, w_dim]
+    :return: list of parameter dictionaries
+    '''
 
-    # vanilla ols fit
+    list_of_param_dicts = []
 
-    ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
-    ols_intercept_estimate = ols_model.params[0]
-    # slope_estimate = min(ols_model.params[1],args.w_dim/2)
-    ols_slope_estimate = ols_model.params[1]
+    for i in range(0, sampled_weights.shape[0]):
+
+        if args.dataset == 'logistic_synthetic':
+
+            if args.bias:
+                w = sampled_weights[i, 0:(args.w_dim - 1)].reshape(args.w_dim - 1, 1)
+                b = sampled_weights[i, args.w_dim - 1]
+            else:
+                w = sampled_weights[i, 0:(args.w_dim)].reshape(args.w_dim, 1)
+                b = 0.0
+
+            list_of_param_dicts.append({'w': w, 'b': b}.copy())
+
+        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+
+            a_params = sampled_weights[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H, )
+            b_params = sampled_weights[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
+
+            list_of_param_dicts.append({'a': a_params, 'b': b_params}.copy())
+
+    return list_of_param_dicts
 
 
-    plt.scatter(1 / args.betas, temperedNLL_perMC_perBeta, label='nll beta')
-    plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-', label='robust ols')
-    plt.plot(1 / args.betas, ols_intercept_estimate + ols_slope_estimate * 1 / args.betas, 'b-', label='vanilla ols')
+def calculate_nllsum_paramdict(args, y, x, param_dictionary):
+    '''
+    Given dataset name and model parameters w, return nL_n(w) = - \sum_{i=1}^n \log p(y|x,w)
+    :return:
+    '''
 
-    plt.title("d_on_2 = {}, true lambda = {:.1f} "
-              "\n hat lambda robust = {:.1f}, hat lambda vanilla = {:.1f}"
-              .format(args.w_dim/2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
-    plt.xlabel("1/beta", fontsize=8)
-    plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
-    plt.legend()
-    plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
-    plt.close()
+    if args.dataset == 'logistic_synthetic':
 
-    return robust_slope_estimate, ols_slope_estimate
+        w = param_dictionary['w']
+        b = param_dictionary['b']
+
+        prob = torch.sigmoid(torch.mm(x, w) + b)
+        loss = nn.BCELoss(reduction='sum')
+
+        return loss(prob, y)  # same as -sum(y*np.log(prob)+(1-y)*np.log(1-prob))
+
+    elif args.dataset == 'tanh_synthetic':
+        a = param_dictionary['a']
+        b = param_dictionary['b']
+
+        loss = nn.MSELoss(reduction='sum')
+        mean = torch.matmul(torch.tanh(torch.matmul(x, a)), b)
+
+        return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+
+    elif args.dataset == 'reducedrank_synthetic':
+
+        a = param_dictionary['a']
+        b = param_dictionary['b']
+
+        loss = nn.MSELoss(reduction='sum')
+        mean = torch.matmul(torch.matmul(x, a), b)
+
+        return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+
 
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
