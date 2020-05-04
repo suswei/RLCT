@@ -2,8 +2,8 @@ from __future__ import print_function
 
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 import copy
+
 import pyvarinf
 from RLCT_helper import *
 
@@ -44,6 +44,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
     train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, loss_prior_epoch = [], [], [], [], []
     reconstr_err_minibatch, loss_prior_minibatch, train_loss_minibatch = [], [], []
+    itr = 0 # iteration counter
     # train var_model
     for epoch in range(1, args.epochs + 1):
 
@@ -63,19 +64,22 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
             loss = reconstr_err / len(target) + loss_prior  # this is the ELBO
             loss.backward()
+            itr += 1
             optimizer.step()
 
             reconstr_err_minibatch.append(reconstr_err.item())
             loss_prior_minibatch.append(loss_prior.item())
             train_loss_minibatch.append(loss.item())
 
-            if verbose:
-                if batch_idx % args.log_interval == 0:
-                    print(
-                        'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
-                            epoch, batch_idx * len(data), args.n,
-                                   100. * batch_idx / len(train_loader), loss.data.item(),
-                                   reconstr_err.data.item() / len(target), loss_prior.data.item()))
+            # if itr % args.log_interval == 0:
+            #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
+            #             epoch, batch_idx * len(data), args.n,
+            #                    100. * batch_idx / len(train_loader), loss.data.item(),
+            #                    reconstr_err.data.item() / len(target), loss_prior.data.item()))
+
+        if epoch % args.log_interval == 0:
+            print('Train Epoch: {} \tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
+                epoch, loss.data.item(), reconstr_err.data.item()/len(target), loss_prior.data.item()))
 
     #     with torch.no_grad():  # to save memory, no intermediate activations used for gradient calculation is stored.
     #         var_model.eval()

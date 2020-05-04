@@ -7,7 +7,6 @@ from collections import OrderedDict
 from scipy.special import gammaln
 import numpy as np
 import torch.nn.functional as F
-
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn.parameter import Parameter

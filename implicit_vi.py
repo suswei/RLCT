@@ -1,8 +1,10 @@
 from __future__ import print_function
+
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import copy
 import itertools
+
 from RLCT_helper import *
 
 
@@ -54,7 +56,7 @@ class Generator(nn.Module):
         return self.net(epsilon)
 
 
-# TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and ivi.py
+# TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and implicit_vi.py
 def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath):
     # instantiate generator and discriminator
     G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G,
@@ -89,16 +91,12 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
     train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
     reconstr_err_minibatch, D_err_minibatch, primal_loss_minibatch = [], [], []
 
+    itr = 0 # iteration counter
     # train discriminator and generator together
     for epoch in range(args.epochs):
 
         D.train()
         G.train()
-
-        if args.dataset == 'logistic_synthetic':
-            correct = 0
-        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            training_sum_se = 0
 
         for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -120,7 +118,6 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             sampled_weights = G(eps) # [args.epsilon_mc, w_dim]
             batch_ELBO_reconstr = 0
 
-            # TODO: caution, can't just plug in sample_IVI as is, problem with backprop
             for i in range(args.epsilon_mc):  # loop over rows of sampled_weights corresponding to different epsilons
                 current_w = sampled_weights[i, :].unsqueeze(dim=0)
                 param_dict = weights_to_dict(args, current_w)[0]
@@ -130,6 +127,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             discriminator_err_component = torch.mean(D(sampled_weights)) / (args.betas[beta_index] * args.n)
             loss_primal = reconstr_err_component + discriminator_err_component
             loss_primal.backward(retain_graph=True)
+            itr += 1
             opt_primal.step()
             G.zero_grad()
             D.zero_grad()
@@ -138,24 +136,13 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             D_err_minibatch.append(discriminator_err_component.item())
             primal_loss_minibatch.append(loss_primal.item())
 
-            # minibatch logging on args.log_interval
-            # if args.dataset == 'logistic_synthetic':
-            #     pred = logsoftmax_output.data.max(1)[1]  # get the index of the max log-probability
-            #     correct += pred.eq(target.long().data).cpu().sum()
-            # elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            #     training_sum_se += args.loss_criterion(output, target).detach().cpu().numpy()
-            if batch_idx % args.log_interval == 0:
-                print(
-                    'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
-                        epoch, batch_idx * len(data), args.n,
-                               100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
+            # if itr % args.log_interval == 0:
+            #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(
+            #             epoch, batch_idx * len(data), args.n, 100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
-        # every epoch, log the following
-        # if args.dataset == 'logistic_synthetic':
-        #     print('\nTrain set: Accuracy: {}/{} ({:.0f}%)\n'.format(correct, args.n, 100. * correct / args.n))
-        # elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        #     print('\nTrain set: MSE: {} \n'.format(training_sum_se/args.n))
-        #
+        if epoch % args.log_interval == 0:
+            print('Train Epoch: {} \tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(epoch, loss_primal.data.item(), loss_dual.data.item()))
+
         # with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
         #     D.eval()
         #     G.eval()

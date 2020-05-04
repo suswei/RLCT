@@ -4,11 +4,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-import models
 from sklearn.linear_model import ElasticNet
 from matplotlib import pyplot as plt
 from statsmodels.regression.linear_model import OLS, GLS
 from statsmodels.tools.tools import add_constant
+
+import models
+
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
 
@@ -37,11 +39,11 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgpath):
     plt.xlabel("1/beta", fontsize=8)
     plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
     plt.legend()
-    plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
+    if saveimgpath is not None:
+        plt.savefig('{}/thm4_beta_vs_lhs.png'.format(saveimgpath))
     plt.show()
 
     return robust_slope_estimate, ols_slope_estimate
-
 
 
 def count_parameters(model):
@@ -84,8 +86,7 @@ def set_betas(args):
         # let's consider beta range [1/log(n)(1 - 1/\sqrt(2\log n)), 1/log(n)(1 + 1/\sqrt(2\log n)) ], taking the worst case for the std for U_n
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(2 * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(2 * np.log(args.n))), args.numbetas)
-        args.betasbegin = 1 - 1 / np.sqrt(2 * np.log(args.n))
-        args.betasend = 1 + 1 / np.sqrt(2 * np.log(args.n))
+
 
     elif args.beta_auto_liberal:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
@@ -94,8 +95,6 @@ def set_betas(args):
         args.betas = np.linspace(1 / np.log(args.n) * (1 - 1 / np.sqrt(args.w_dim * np.log(args.n))),
                                  1 / np.log(args.n) * (1 + 1 / np.sqrt(args.w_dim * np.log(args.n))),
                                  args.numbetas)
-        args.betasbegin = 1 - 1 / np.sqrt(args.w_dim * np.log(args.n))
-        args.betasend = 1 + 1 / np.sqrt(args.w_dim * np.log(args.n))
 
     elif args.beta_auto_oracle:
         # optimal beta is given by 1/log(n)[1+U_n/\sqrt(2\lambda \log n) + o_p(1/\sqrt(2\lambda \log n) ], according to Corollary 2 of WBIC
@@ -207,7 +206,6 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         mean = torch.matmul(torch.matmul(x, a), b)
 
         return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
-
 
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework

@@ -1,36 +1,20 @@
 from __future__ import print_function
-from evi import *
-from ivi import *
-import scipy.stats as st
-from RLCT_helper import *
+
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import os
 import argparse
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.autograd import Variable
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-import numpy as np
-from joblib import Parallel, delayed
 import random
-from matplotlib import pyplot as plt
-import matplotlib.transforms as mtransforms
-import copy
-import pickle
-import itertools
-import math
-import pyvarinf
-import models
-from dataset_factory import get_dataset_by_id
-from RLCT_helper import *
 from sklearn.manifold import TSNE
 import seaborn as sns
 import pandas as pd
 from random import randint
+import scipy.stats as st
 
+from dataset_factory import get_dataset_by_id
+from explicit_vi import *
+from implicit_vi import *
+from RLCT_helper import *
 
 # TODO: Add 3D support
 def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
@@ -58,7 +42,7 @@ def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
     f = np.reshape(kernel(w).T, [wspace,wspace])
 
     fig = make_subplots(rows=1, cols=3, subplot_titles=('(unnormalised) prior',
-                                                        '(unnormalised) posterior: 1/beta {0:.3f}'.format(args.betas[beta_index]),
+                                                        '(unnormalised) posterior',
                                                         'kde of sampled weights'))
     fig.add_trace(
         go.Contour(
@@ -82,7 +66,7 @@ def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
             y=sampled_weights[:, 1].detach().numpy(),
             mode='markers',
             name='Sampled Data',
-            marker=dict(size=10,opacity=0.6)
+            marker=dict(size=3,opacity=0.6)
         ),
         row=1, col=2
     )
@@ -93,8 +77,11 @@ def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
             y=wrange),  # vertical axis
             row=1, col=3
     )
-    fig.update_layout(title_text="{}: {}".format(args.dataset,args.VItype))
-    fig.show()
+    fig.update_layout(title_text='{}, {}, beta {}'.format(args.dataset, args.VItype, args.betas[beta_index]))
+    if args.notebook:
+        fig.show(renderer='notebook')
+    else:
+        fig.show()
     if saveimgpath is not None:
         fig.write_image('./{}/posteior_betaind{}.png'.format(saveimgpath, beta_index))
 
@@ -117,7 +104,8 @@ def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
     plt.figure(figsize=(16, 10))
     ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
     plt.title('tsne view: sampled w: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-    plt.savefig('./{}/tsne_betaind{}.png'.format(saveimgpath, beta_index))
+    if saveimgpath is not None:
+        plt.savefig('./{}/tsne_betaind{}.png'.format(saveimgpath, beta_index))
     plt.close()
 
 
@@ -371,7 +359,6 @@ def main():
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
 
-
     # asymptotics
 
     parser.add_argument('--elasticnet_alpha', type=float, default=0.5,
@@ -396,7 +383,7 @@ def main():
     parser.add_argument('--betasend', type=float, default=1.5,
                         help='where beta range should end')
 
-    parser.add_argument('--betalogscale', action="store_true",
+    parser.add_argument('--betalogscale', action="store_true", default=False,
                         help='turn on if beta should be on 1/log n scale')
 
     parser.add_argument('--numbetas', type=int,  default=20,
@@ -413,8 +400,10 @@ def main():
                         help='number of MC draws from approximate posterior (default:200)')
 
     # visualization/logging
+    parser.add_argument('--notebook', action="store_true", default=False,
+                        help='turn on for plotly notebook render')
 
-    parser.add_argument('--tsne_viz', action="store_true",
+    parser.add_argument('--tsne_viz', action="store_true", default=False,
                         help='use tsne visualization of generator')
 
     parser.add_argument('--posterior_viz', action="store_true",

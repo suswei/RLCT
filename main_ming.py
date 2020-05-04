@@ -75,7 +75,7 @@ class Generator(nn.Module):
         return self.net(epsilon)
 
 
-# TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and ivi.py
+# TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and implicit_vi.py
 def train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath):
 
     # instantiate generator and discriminator
