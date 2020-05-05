@@ -153,133 +153,53 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
     return nllw_array.mean(), nllw_array.var(), nllw_array
 
 
-# Thm 4 of Watanabe's WBIC: E_w^\beta[nL_n(w)] = nL_n(w_0) + \lambda/\beta + U_n \sqrt(\lambda/\beta)
-def lambda_thm4(args, kwargs):
+def lambda_asymptotics(args,kwargs):
 
-    RLCT_estimates_OLS = np.empty(0)
+    path = None
+
+    nlls_mean = np.empty((args.MCs, args.numbetas))
+    for mc in range(0, args.MCs):
+        # draw new training-testing split
+        train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
+        for beta_index in range(args.numbetas):
+            print('Starting mc {}/{}, beta {}/{}'.format(mc, args.MCs, beta_index, args.numbetas))
+            nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, path)
+            nlls_mean[mc, beta_index] = nll_mean
+
+    # theorem 4
+    RLCT_estimates_ols = np.empty(0)
     RLCT_estimates_robust = np.empty(0)
-
     for mc in range(0, args.MCs):
-
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
-        if not os.path.exists(path):
-            os.makedirs(path)
-
-        print('Starting MC {}'.format(mc))
-        # draw new training-testing split
-
-        train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
-
-        temperedNLL_perMC_perBeta = np.empty(0)
-        for beta_index in range(args.betas.shape[0]):
-            temp, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, path)
-            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
-
-        # least squares fit for lambda
-        robust, ols = lsfit_lambda(temperedNLL_perMC_perBeta, args, path)
-
+        robust, ols = lsfit_lambda(nlls_mean[mc, :], args, path)
         RLCT_estimates_robust = np.append(RLCT_estimates_robust, robust)
-        RLCT_estimates_OLS = np.append(RLCT_estimates_OLS, ols)
+        RLCT_estimates_ols = np.append(RLCT_estimates_ols, ols)
 
-        print("RLCT robust: {}".format(RLCT_estimates_robust))
-        print("RLCT OLS: {}".format(RLCT_estimates_OLS))
+    results_dict = {'rlct robust thm4 array': RLCT_estimates_robust,
+                    'rlct robust thm4 mean': RLCT_estimates_robust.mean(),
+                    'rlct robust thm4 std':RLCT_estimates_robust.std(),
+                    'rlct ols thm4 array': RLCT_estimates_ols,
+                    'rlct ols thm4 mean': RLCT_estimates_ols.mean(),
+                    'rlct ols thm4 std':RLCT_estimates_ols.std()}
 
-        print('Finishing MC {}'.format(mc))
+    # theorem 4 average
+    # nlls_mean.mean(axis=0) shape should be 1, numbetas
+    robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, path)
+    results_dict.update({'rlct robust thm4 average': robust, 'rlct ols thm4 average': ols})
 
-    # return array of RLCT estimates, length args.MCs
-    return RLCT_estimates_robust, RLCT_estimates_OLS
-
-
-# apply E_{D_n} to Theorem 4 of Watanabe's WBIC: E_{D_n} E_w^\beta[nL_n(w)] = E_{D_n} nL_n(w_0) + \lambda/\beta
-def lambda_thm4average(args, kwargs):
-
-    temperedNLL_perBeta = np.empty(0)
-
-    for beta_index in range(args.betas.shape[0]):
-
-        beta = args.betas[beta_index]
-        print('Starting beta {}'.format(beta))
-
-        temperedNLL_perMC_perBeta = np.empty(0)
-
-        for mc in range(0, args.MCs):
-
-            path = './{}_sanity_check/taskid{}/img/beta{}/mc{}'.format(args.VItype, args.taskid, beta, mc)
-            if not os.path.exists(path):
-                os.makedirs(path)
-
-            # draw new training-testing split
-            train_loader, valid_loader, test_loader= get_dataset_by_id(args, kwargs)
-            temp,_,_ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, path)
-            temperedNLL_perMC_perBeta = np.append(temperedNLL_perMC_perBeta, temp)
-
-        temperedNLL_perBeta = np.append(temperedNLL_perBeta, temperedNLL_perMC_perBeta.mean())
-
-        print('Finishing beta {}'.format(beta))
-
-    path = './{}_sanity_check/taskid{}/img/'.format(args.VItype, args.taskid)
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    RLCT_estimate_robust, RLCT_estimate_OLS = lsfit_lambda(temperedNLL_perBeta, args, path)
-
-    # each RLCT estimate is one elment array
-    return RLCT_estimate_robust, RLCT_estimate_OLS
-
-
-def lambda_cor3(args, kwargs):
-
+    # variance thermodynamic integration Imai
     RLCT_estimates = np.empty(0)
-
-    for mc in range(0, args.MCs):
-
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
-        if not os.path.exists(path):
-            os.makedirs(path)
-
-        # draw new training-testing split
-        train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
-
-        lambdas_beta1 = np.empty(0)
-        for beta_index in range(args.betas.shape[0]):
-
-            beta = args.betas[beta_index]
-            beta1 = beta
-            beta2 = beta+0.05/np.log(args.n)
-            _, _, nlls = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, path)
-
-            lambda_beta1 = (nlls.mean() - (nlls * np.exp(-(beta2 - beta1) * nlls)).mean() / (np.exp(-(beta2 - beta1) * nlls)).mean()) / (1 / beta1 - 1 / beta2)
-            lambdas_beta1 = np.append(lambdas_beta1, lambda_beta1)
-            RLCT_estimates = np.append(RLCT_estimates, lambdas_beta1.mean())
-
-
-        print('MC: {} RLCT estimate: {:.2f}'.format(mc, lambdas_beta1.mean()))
-
-    return RLCT_estimates
-
-
-def varTI(args, kwargs):
-
-    RLCT_estimates = np.empty(0)
-
-    # set optimal parameter
     args.betas = np.array([1 / np.log(args.n)])
-
-    # for each MC, calculate (beta)^2 Var_w^\beta nL_n(w)
     for mc in range(0, args.MCs):
-
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
-        if not os.path.exists(path):
-            os.makedirs(path)
-
         # draw new training-testing split
         train_loader, valid_loader, test_loader= get_dataset_by_id(args, kwargs)
         _, var_nll , _ = approxinf_nll(train_loader, valid_loader, args, mc, 0, path)
         RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
-        print('MC: {} (beta)^2 Var_w^\beta nL_n(w): {:.2f}'.format(mc, var_nll/(np.log(args.n)**2)))
 
-    return RLCT_estimates
+    results_dict.update({'rlct var TI array': RLCT_estimates,
+                         'rlct var TI mean': RLCT_estimates.mean(),
+                         'rlct var TI std': RLCT_estimates.std()})
 
+    return results_dict
 
 def main():
 
@@ -354,7 +274,7 @@ def main():
                         help='dual learning rate (default: 0.01)')
 
     parser.add_argument('--lr', type=float, default=1e-2, metavar='LR',
-                        help='learning rate (default: 0.01)')
+                          help='learning rate (default: 0.01)')
 
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
@@ -456,53 +376,10 @@ def main():
 
     print(vars(args))
 
-    if args.lambda_asymptotic == 'thm4':
+    results = lambda_asymptotics(args, kwargs)
+    results.update({"true_RLCT": args.trueRLCT, "d on 2": args.w_dim/2})
+    print(results)
 
-        RLCT_estimates_robust, RLCT_estimates_OLS = lambda_thm4(args, kwargs)
-        results = dict({
-            "true_RLCT": args.trueRLCT,
-            "d_on_2": args.w_dim/2,
-            "RLCT estimates (robust)": RLCT_estimates_robust,
-            "mean RLCT estimates (robust)": RLCT_estimates_robust.mean(),
-            "std RLCT estimates (robust)": RLCT_estimates_robust.std(),
-            "RLCT estimates (OLS)": RLCT_estimates_OLS,
-            "mean RLCT estimates (OLS)": RLCT_estimates_OLS.mean(),
-            "std RLCT estimates (OLS)": RLCT_estimates_OLS.std(),
-        })
-
-    elif args.lambda_asymptotic == 'thm4_average':
-
-        RLCT_estimate_robust, RLCT_estimate_OLS = lambda_thm4average(args, kwargs)
-        results = dict({
-            "true_RLCT": [args.trueRLCT],
-            "d on 2": [args.w_dim/2],
-            "RLCT estimate (robust)": [RLCT_estimate_robust],
-            "RLCT estimate (OLS)": [RLCT_estimate_OLS]
-        }) # since all scalar, need to listify to avoid error in from_dict
-
-    elif args.lambda_asymptotic == 'cor3':
-
-        RLCT_estimates = lambda_cor3(args, kwargs)
-        results = dict({
-            "true_RLCT": args.trueRLCT,
-            "d on 2": args.w_dim/2,
-            "RLCT estimates": RLCT_estimates,
-            "mean RLCT estimates": RLCT_estimates.mean(),
-            "std RLCT estimates": RLCT_estimates.std()
-        })
-
-    elif args.lambda_asymptotic == 'varTI':
-
-        RLCT_estimates = varTI(args, kwargs)
-        results = dict({
-            "true_RLCT": args.trueRLCT,
-            "d on 2": args.w_dim/2,
-            "RLCT estimates": RLCT_estimates,
-            "mean RLCT estimates": RLCT_estimates.mean(),
-            "std RLCT estimates": RLCT_estimates.std()
-        })
-
-    # save locally
     path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
