@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 import copy
 import itertools
 
@@ -17,7 +16,7 @@ class Discriminator(nn.Module):
     """
 
     def __init__(self, w_dim, n_hidden_D, num_hidden_layers_D=2):
-        super().__init__()
+        super(Discriminator, self).__init__()
 
         self.enc_sizes = np.concatenate(
             ([w_dim], np.repeat(n_hidden_D, num_hidden_layers_D + 1), [1])).tolist()
@@ -41,7 +40,7 @@ class Generator(nn.Module):
     """
 
     def __init__(self, epsilon_dim, w_dim, n_hidden_G, num_hidden_layers_G=2):
-        super().__init__()
+        super(Generator, self).__init__()
 
         self.enc_sizes = np.concatenate(
             ([epsilon_dim], np.repeat(n_hidden_G, num_hidden_layers_G + 1), [w_dim])).tolist()
@@ -58,11 +57,10 @@ class Generator(nn.Module):
 
 # TODO: this needs to be put into the pyvarinf framework as Mingming has demonstrated in main_ivi and implicit_vi.py
 def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath):
+
     # instantiate generator and discriminator
-    G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G,
-                          args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
-    D_initial = Discriminator(args.w_dim, args.n_hidden_D,
-                              args.num_hidden_layers_D)  # D = Discriminator(w_dim).to(args.cuda)
+    G_initial = Generator(args.epsilon_dim, args.w_dim, args.n_hidden_G, args.num_hidden_layers_G)  # G = Generator(args.epsilon_dim, w_dim).to(args.cuda)
+    D_initial = Discriminator(args.w_dim, args.n_hidden_D, args.num_hidden_layers_D)  # D = Discriminator(w_dim).to(args.cuda)
     G = copy.deepcopy(G_initial)
     D = copy.deepcopy(D_initial)
 
@@ -73,8 +71,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
     opt_dual = optim.Adam(
         D.parameters(),
         lr=args.lr_dual)
-    scheduler_G = ReduceLROnPlateau(opt_primal, mode='min', factor=0.1, patience=3, verbose=True)
-    early_stopping = EarlyStopping(patience=10, verbose=True)
+    # scheduler_G = ReduceLROnPlateau(opt_primal, mode='min', factor=0.1, patience=3, verbose=True)
+    # early_stopping = EarlyStopping(patience=10, verbose=True)
 
     # pretrain discriminator
     for epoch in range(args.pretrainDepochs):
@@ -91,6 +89,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
     train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, D_err_epoch = [], [], [], [], []
     reconstr_err_minibatch, D_err_minibatch, primal_loss_minibatch = [], [], []
 
+    # TODO: put back logging
     itr = 0 # iteration counter
     # train discriminator and generator together
     for epoch in range(args.epochs):

@@ -126,6 +126,9 @@ def get_dataset_by_id(args,kwargs):
         args.loss_criterion = nn.BCELoss(reduction="sum")
         args.trueRLCT = (args.input_dim + 1*args.bias)/2
 
+        if args.sanity_check:
+            args.network = 'logistic'
+
     elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         if args.dpower is None:
@@ -161,8 +164,12 @@ def get_dataset_by_id(args,kwargs):
         max_integer = int(math.sqrt(args.H))
         args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
 
+        if args.sanity_check:
+            args.network = 'tanh'
+
     elif args.dataset == 'reducedrank_synthetic':
 
+        # TODO: design A_0, B_0 so the loci are equivalent, was suggested to make B_0A_0 surjective
         # suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
         # solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
         if args.dpower is None:
@@ -205,6 +212,8 @@ def get_dataset_by_id(args,kwargs):
         args.loss_criterion = nn.MSELoss(reduction='sum')
         args.trueRLCT = (args.output_dim * args.H - args.H ** 2 + args.input_dim * args.H) / 2 # rank r = H for the 'reducedrank_synthetic' dataset
 
+        if args.sanity_check:
+            args.network = 'reducedrank'
     else:
         print('Not a valid dataset name. See options in dataset-factory')
 

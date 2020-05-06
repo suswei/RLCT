@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 import copy
 
 import pyvarinf
@@ -9,12 +8,12 @@ from RLCT_helper import *
 
 
 def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, saveimgpath):
+
     # retrieve model
     model, _ = retrieve_model(args)
 
     # variationalize model
-    var_model_initial = pyvarinf.Variationalize(model,
-                                                zero_mean=False)  # TODO: does zero_mean have a meaningful impact?
+    var_model_initial = pyvarinf.Variationalize(model, zero_mean=False)  # TODO: does zero_mean have a meaningful impact?
 
     # setting up prior parameters
     prior_parameters = {}
@@ -39,9 +38,10 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
     if args.cuda:
         var_model.cuda()
     optimizer = optim.Adam(var_model.parameters(), lr=args.lr)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
-    early_stopping = EarlyStopping(patience=10, verbose=True)
+    # scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
+    # early_stopping = EarlyStopping(patience=10, verbose=True)
 
+    # TODO: put back logging
     train_loss_epoch, valid_loss_epoch, train_reconstr_err_epoch, valid_reconstr_err_epoch, loss_prior_epoch = [], [], [], [], []
     reconstr_err_minibatch, loss_prior_minibatch, train_loss_minibatch = [], [], []
     itr = 0 # iteration counter

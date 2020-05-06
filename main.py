@@ -10,10 +10,11 @@ import seaborn as sns
 import pandas as pd
 from random import randint
 import scipy.stats as st
+import pickle
 
 from dataset_factory import get_dataset_by_id
-from explicit_vi import *
 from implicit_vi import *
+from explicit_vi import *
 from RLCT_helper import *
 
 # TODO: Add 3D support
@@ -93,7 +94,6 @@ def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
 
-
     sampled_true_w = torch.cat((sampled_weights, true_weight), 0)
     tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
     tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
@@ -153,9 +153,8 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
     return nllw_array.mean(), nllw_array.var(), nllw_array
 
 
-def lambda_asymptotics(args,kwargs):
+def lambda_asymptotics(args, kwargs):
 
-    path = None
 
     nlls_mean = np.empty((args.MCs, args.numbetas))
     for mc in range(0, args.MCs):
@@ -163,14 +162,15 @@ def lambda_asymptotics(args,kwargs):
         train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
         for beta_index in range(args.numbetas):
             print('Starting mc {}/{}, beta {}/{}'.format(mc, args.MCs, beta_index, args.numbetas))
-            nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, path)
+            nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, None)
             nlls_mean[mc, beta_index] = nll_mean
 
     # theorem 4
     RLCT_estimates_ols = np.empty(0)
     RLCT_estimates_robust = np.empty(0)
     for mc in range(0, args.MCs):
-        robust, ols = lsfit_lambda(nlls_mean[mc, :], args, path)
+        saveimgname = '{}/thm4_lsfit_mc{}.png'.format(args.path,mc)
+        robust, ols = lsfit_lambda(nlls_mean[mc, :], args, saveimgname)
         RLCT_estimates_robust = np.append(RLCT_estimates_robust, robust)
         RLCT_estimates_ols = np.append(RLCT_estimates_ols, ols)
 
@@ -183,16 +183,18 @@ def lambda_asymptotics(args,kwargs):
 
     # theorem 4 average
     # nlls_mean.mean(axis=0) shape should be 1, numbetas
-    robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, path)
+    saveimgname = '{}/thm4_average_lsfit.png'.format(args.path)
+    robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, saveimgname)
     results_dict.update({'rlct robust thm4 average': robust, 'rlct ols thm4 average': ols})
 
     # variance thermodynamic integration Imai
     RLCT_estimates = np.empty(0)
     args.betas = np.array([1 / np.log(args.n)])
     for mc in range(0, args.MCs):
+        print('Starting mc {}/{}: var TI'.format(mc, args.MCs, beta_index, args.numbetas))
         # draw new training-testing split
-        train_loader, valid_loader, test_loader= get_dataset_by_id(args, kwargs)
-        _, var_nll , _ = approxinf_nll(train_loader, valid_loader, args, mc, 0, path)
+        train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
+        _, var_nll, _ = approxinf_nll(train_loader, valid_loader, args, mc, 0, None)
         RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
 
     results_dict.update({'rlct var TI array': RLCT_estimates,
@@ -200,6 +202,7 @@ def lambda_asymptotics(args,kwargs):
                          'rlct var TI std': RLCT_estimates.std()})
 
     return results_dict
+
 
 def main():
 
@@ -223,6 +226,9 @@ def main():
 
     parser.add_argument('--dpower', type=float,
                         help='would set total number of model parameters to n^dpower')
+
+    parser.add_argument('--sanity_check', action='store_true', default=False,
+                    help='turn on if network should match synthetic generation')  # only applies to logistic right now, for purpose of testing lr_synthetic
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
@@ -284,10 +290,6 @@ def main():
     parser.add_argument('--elasticnet_alpha', type=float, default=0.5,
                         help='penalty factor for elastic net in lsfit of lambda, 0.0 for ols and 1.0 for elastic net')
 
-    parser.add_argument('--lambda_asymptotic', type=str, default='thm4',
-                        help='which asymptotic characterisation of lambda to use',
-                        choices=['thm4', 'thm4_average', 'cor3','varTI'])
-
     parser.add_argument('--beta_auto_liberal', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (liberal) range of betas based on sample size')
 
@@ -309,15 +311,13 @@ def main():
     parser.add_argument('--numbetas', type=int,  default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
-    # as high as possible
-    # parser.add_argument('--epsilon_mc', type=int, default=10,
-    #                     help='number of draws for estimating E_\epsilon')
 
     parser.add_argument('--MCs', type=int, default=1,
                         help='number of times to split into train-test')
 
     parser.add_argument('--R', type=int, default=200,
                         help='number of MC draws from approximate posterior (default:200)')
+
 
     # visualization/logging
     parser.add_argument('--notebook', action="store_true", default=False,
@@ -326,7 +326,7 @@ def main():
     parser.add_argument('--tsne_viz', action="store_true", default=False,
                         help='use tsne visualization of generator')
 
-    parser.add_argument('--posterior_viz', action="store_true",
+    parser.add_argument('--posterior_viz', action="store_true", default=False,
                         help='should only use with lr_synthetic, w_dim = 2, bias = False')
 
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
@@ -361,7 +361,7 @@ def main():
         if args.w_dim is None and args.dpower is None:
             parser.error('w_dim or dpower is necessary for synthetic data')
         if args.posterior_viz:
-            if (args.w_dim != 2) or (args.bias==True):
+            if (args.w_dim != 2) or (args.bias == True):
                 parser.error('posterior visualisation only supports args.w_dim = 2 and args.bias = False')
 
 
@@ -374,27 +374,30 @@ def main():
     # get grid of betas for RLCT asymptotics
     set_betas(args)
 
-    print(vars(args))
-
-    results = lambda_asymptotics(args, kwargs)
-    results.update({"true_RLCT": args.trueRLCT, "d on 2": args.w_dim/2})
-    print(results)
-
-    path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
+    # log results to directory
+    path = './{}_sanity_check/taskid{}'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
 
+    # record configuration for saving
+    args.path = path
     args_dict = vars(args)
-    if args.dataset == 'logistic_synthetic':
-        for key in ['w_0', 'b', 'loss_criterion', 'model', 'betas']:
-            del args_dict[key]
-    if args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        for key in ['H', 'a_params', 'b_params', 'loss_criterion', 'model', 'betas']:
-            del args_dict[key]
+    print(args_dict)
 
-    results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
-    results_args.to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
+    print('Starting taskid {}'.format(args.taskid))
+    results_dict = lambda_asymptotics(args, kwargs)
+    results_dict.update({"true_RLCT": args.trueRLCT, "d on 2": args.w_dim/2})
+    print(results_dict)
+    print('Finished taskid {}'.format(args.taskid))
 
+
+    with open('{}/results.pkl'.format(path), 'wb') as f:
+        pickle.dump(results_dict, f)
+    with open('{}/config.pkl'.format(path), 'wb') as f:
+        pickle.dump(args_dict, f)
+
+    # pickle.load(open('{}/config.pkl'.format(path),"rb"))
+    # pickle.load(open('{}/results.pkl'.format(path),"rb"))
 
 if __name__ == "__main__":
     main()
