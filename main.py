@@ -11,6 +11,7 @@ import pandas as pd
 from random import randint
 import scipy.stats as st
 import pickle
+import math
 
 from dataset_factory import get_dataset_by_id
 from implicit_vi import *
@@ -113,7 +114,7 @@ def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
 def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath):
 
     args.epsilon_dim = args.w_dim
-    args.epsilon_mc = args.batchsize  # TODO: overwriting args parser input
+    args.epsilon_mc = args.batchsize  # TODO: is epsilon_mc sensitive?
 
     if args.VItype == 'implicit':
 
@@ -154,7 +155,6 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
 
 
 def lambda_asymptotics(args, kwargs):
-
 
     nlls_mean = np.empty((args.MCs, args.numbetas))
     for mc in range(0, args.MCs):
@@ -202,6 +202,68 @@ def lambda_asymptotics(args, kwargs):
                          'rlct var TI std': RLCT_estimates.std()})
 
     return results_dict
+
+
+# set up true parameters for synthetic datasets
+def setup_w0(args):
+
+    if args.dataset == 'logistic_synthetic':
+
+        if args.dpower is None:
+            if args.bias:
+                args.input_dim = args.w_dim - 1
+            else:
+                args.input_dim = args.w_dim
+        else:
+            args.input_dim = int(np.power(args.syntheticsamplesize, args.dpower))
+
+        args.w_0 = torch.randn(args.input_dim, 1)
+
+        if args.bias:
+            args.b = torch.randn(1)
+        else:
+            args.b = torch.tensor([0.0])
+
+        if args.posterior_viz:
+            args.w_0 = torch.Tensor([[0.5], [1]])
+            args.b = torch.tensor([0.0])
+
+        args.output_dim = 1
+
+    elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
+
+        if args.dpower is None:
+            args.H = int(args.w_dim/2)
+        else:
+            args.H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
+        args.a_params = torch.zeros([1, args.H], dtype=torch.float32)
+        args.b_params = torch.zeros([args.H, 1], dtype=torch.float32)
+
+    elif args.dataset == 'reducedrank_synthetic':
+
+        # TODO: design A_0, B_0 so the loci are equivalent, was suggested to make B_0A_0 surjective
+        # suppose input_dimension=output_dimension + 3, H = output_dimension, H is number of hidden nuit
+        # solve the equation (input_dimension + output_dimension)*H = np.power(args.syntheticsamplesize, args.dpower) to get output_dimension, then input_dimension, and H
+        if args.dpower is None:
+            args.output_dim = int((-3 + math.sqrt(9 + 4 * 2 * args.w_dim)) / 4)
+        else:
+            args.output_dim = int((-3 + math.sqrt(
+                9 + 4 * 2 * np.power(args.syntheticsamplesize, args.dpower))) / 4)  # TODO: can easily be zero
+
+        args.H = args.output_dim
+        args.input_dim = args.output_dim + 3
+        args.a_params = torch.transpose(
+            torch.cat((torch.eye(args.H), torch.ones([args.H, args.input_dim - args.H], dtype=torch.float32)), 1), 0,
+            1)  # input_dim * H
+        args.b_params = torch.eye(args.output_dim)
+
+        if args.w_dim == 2:
+            args.a_params = torch.Tensor([1.0]).reshape(1, 1)
+            args.b_params = torch.Tensor([1.0]).reshape(1, 1)
+            args.input_dim = 1
+            args.output_dim = 1
+            args.H = 1
+        # in this case, the rank r for args.b_params*args.a_params is H, output_dim + H < input_dim + r is satisfied
 
 
 def main():
@@ -364,6 +426,7 @@ def main():
             if (args.w_dim != 2) or (args.bias == True):
                 parser.error('posterior visualisation only supports args.w_dim = 2 and args.bias = False')
 
+    setup_w0(args)
 
     # set necessary parameters related to dataset in args
     get_dataset_by_id(args, kwargs)

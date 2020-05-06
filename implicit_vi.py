@@ -101,8 +101,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
 
             # opt discriminator more than generator
             for discriminator_epoch in range(args.trainDepochs):
-                w_sampled_from_prior = randn((args.epsilon_mc, args.w_dim),
-                                             args.cuda)  # TODO: add more options for prior besides hardcoding Gaussian prior
+                w_sampled_from_prior = randn((args.epsilon_mc, args.w_dim),args.cuda)
                 eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
                 loss_dual = torch.mean(-F.logsigmoid(D(G(eps))) - F.logsigmoid(-D(w_sampled_from_prior)))
                 loss_dual.backward()
