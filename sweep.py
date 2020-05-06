@@ -6,6 +6,7 @@ def main(taskid):
 
     taskid = int(taskid[0])
     hyperparameter_config = {
+        'dataset': ['reducedrank_synthetic','tanh_synthetic'],
         'syntheticsamplesize': [500, 1000, 5000],
         'batchsize': [50, 100],
         'betasend': [0.5, 1.5],
@@ -19,11 +20,11 @@ def main(taskid):
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 main.py --dataset tanh_synthetic --sanity_check --VItype implicit --bias --epochs 200 --MCs 100 --betasbegin 0.1 --betalogscale "
-              "--taskid %s --syntheticsamplesize %s --dpower %s --batchsize %s "
+    os.system("python3 main.py --sanity_check --VItype implicit --bias --epochs 200 --MCs 50 --betasbegin 0.1 --betalogscale --numbetas 10"
+              "--taskid %s --dataset %s --syntheticsamplesize %s --dpower %s --batchsize %s "
               "--betasend %s "
               "--n_hidden_D %s --num_hidden_layers_D %s --n_hidden_G %s --num_hidden_layers_G %s"
-              %(taskid, temp['syntheticsamplesize'], temp['dpower'], temp['batchsize'],
+              %(taskid, temp['dataset'], temp['syntheticsamplesize'], temp['dpower'], temp['batchsize'],
                 temp['betasend'],
                 temp['n_hidden_D'], temp['num_hidden_layers_D'], temp['n_hidden_G'], temp['num_hidden_layers_G'])
               )

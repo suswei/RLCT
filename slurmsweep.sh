@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 
 # The name of the job:
-#SBATCH --job-name="spiral"
+#SBATCH --job-name="rlct"
+#SBATCH -p cloud,physical
 
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=8
 
 # The maximum running time of the job in days-hours:mins:sec
-#SBATCH --time=1-0:0:00
+#SBATCH --time=3-0:0:00
 
 # Batch arrays
-#SBATCH --array=0-384
+#SBATCH --array=0-768
 
 # Send yourself an email when the job:
 # aborts abnormally (fails)
