@@ -20,7 +20,7 @@ def main(taskid):
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 main.py --sanity_check --VItype implicit --bias --epochs 200 --MCs 2 --betasbegin 0.1 --betalogscale --numbetas 10 "
+    os.system("python3 main.py --sanity_check --VItype implicit --bias --epochs 200 --MCs 50 --betasbegin 0.1 --betalogscale --numbetas 10 "
               "--taskid %s --dataset %s --syntheticsamplesize %s --dpower %s --batchsize %s "
               "--betasend %s "
               "--n_hidden_D %s --num_hidden_layers_D %s --n_hidden_G %s --num_hidden_layers_G %s"
