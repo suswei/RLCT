@@ -9,6 +9,8 @@ In reverse chronological order in terms of completion time
 * **8-5-2020-B** on Grumble. 
 
 ```
+global_prior_weight_std = 0.1
+global_prior_bias_std = 0.1
 symmetry_factor = 3
 training_sample_size = 20
 mc_burnin_steps=5000
