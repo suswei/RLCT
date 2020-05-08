@@ -1,10 +1,12 @@
 # Experiment log
 
+Experiment notebooks are logged in `/experiments`.
+
 ## Completed
 
 In reverse chronological order in terms of completion time
 
-* **8-5-2020-A** on Grumble. 
+* **8-5-2020-B** on Grumble. 
 
 ```
 symmetry_factor = 3
