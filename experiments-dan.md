@@ -2,6 +2,22 @@
 
 Experiment notebooks are logged in `/experiments`.
 
+## Running
+
+* **9-5-2020-A** on Grumble
+
+```
+global_prior_weight_std = 0.1
+global_prior_bias_std = 0.1
+symmetry_factor = 3
+training_sample_size = 20
+mc_burnin_steps=5000
+mc_adaptation_steps=4000
+mc_num_results=10000
+```
+
+Same experiment as `8-5-2020-B`.
+
 ## Completed
 
 In reverse chronological order in terms of completion time
