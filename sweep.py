@@ -20,10 +20,8 @@ def main(taskid):
 
     os.system("python3 main.py --sanity_check --dpower 0.4 --VItype implicit --epochs 200 --MCs 1 --betasbegin 0.1 --betasend 0.5 --betalogscale --numbetas 10 "
               "--taskid %s --dataset %s --syntheticsamplesize %s "
-              "--betasend %s "
               "--n_hidden_D %s --num_hidden_layers_D %s --n_hidden_G %s --num_hidden_layers_G %s"
               %(taskid, temp['dataset'], temp['syntheticsamplesize'],
-                temp['betasend'],
                 temp['n_hidden_D'], temp['num_hidden_layers_D'], temp['n_hidden_G'], temp['num_hidden_layers_G'])
               )
 

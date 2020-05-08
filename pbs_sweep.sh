@@ -4,7 +4,7 @@
 #PBS -M susan.wei@unimelb.edu.au
 #PBS -m abe
 #PBS -q normal
-#PBS -l ncpus=256
+#PBS -l ncpus=288
 #PBS -l walltime=48:00:00
 #PBS -l wd
 
