@@ -12,6 +12,8 @@ from random import randint
 import scipy.stats as st
 import pickle
 import math
+import logging
+import sys
 
 from dataset_factory import get_dataset_by_id
 from implicit_vi import *
@@ -85,7 +87,7 @@ def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
     else:
         fig.show()
     if saveimgpath is not None:
-        fig.write_image('./{}/posteior_betaind{}.png'.format(saveimgpath, beta_index))
+        fig.write_image('./{}/posteior_betaind{}'.format(saveimgpath, beta_index))
 
 
 def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
@@ -106,7 +108,7 @@ def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
     ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
     plt.title('tsne view: sampled w: beta = {}'.format(args.betas[beta_index]), fontsize=20)
     if saveimgpath is not None:
-        plt.savefig('./{}/tsne_betaind{}.png'.format(saveimgpath, beta_index))
+        plt.savefig('./{}/tsne_betaind{}'.format(saveimgpath, beta_index))
     plt.close()
 
 
@@ -157,6 +159,10 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
 def lambda_asymptotics(args, kwargs):
 
     nlls_mean = np.empty((args.MCs, args.numbetas))
+    # theorem 4
+    RLCT_estimates_ols = np.empty(0)
+    RLCT_estimates_robust = np.empty(0)
+
     for mc in range(0, args.MCs):
         # draw new training-testing split
         train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
@@ -165,41 +171,40 @@ def lambda_asymptotics(args, kwargs):
             nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, None)
             nlls_mean[mc, beta_index] = nll_mean
 
-    # theorem 4
-    RLCT_estimates_ols = np.empty(0)
-    RLCT_estimates_robust = np.empty(0)
-    for mc in range(0, args.MCs):
-        saveimgname = '{}/thm4_lsfit_mc{}.png'.format(args.path,mc)
+        saveimgname = '{}/thm4_lsfit_mc{}'.format(args.path,mc)
         robust, ols = lsfit_lambda(nlls_mean[mc, :], args, saveimgname)
         RLCT_estimates_robust = np.append(RLCT_estimates_robust, robust)
         RLCT_estimates_ols = np.append(RLCT_estimates_ols, ols)
 
-    results_dict = {'rlct robust thm4 array': RLCT_estimates_robust,
-                    'rlct robust thm4 mean': RLCT_estimates_robust.mean(),
-                    'rlct robust thm4 std':RLCT_estimates_robust.std(),
-                    'rlct ols thm4 array': RLCT_estimates_ols,
-                    'rlct ols thm4 mean': RLCT_estimates_ols.mean(),
-                    'rlct ols thm4 std':RLCT_estimates_ols.std()}
+        results_dict = {'rlct robust thm4 array': RLCT_estimates_robust,
+                        'rlct robust thm4 mean': RLCT_estimates_robust.mean(),
+                        'rlct robust thm4 std': RLCT_estimates_robust.std(),
+                        'rlct ols thm4 array': RLCT_estimates_ols,
+                        'rlct ols thm4 mean': RLCT_estimates_ols.mean(),
+                        'rlct ols thm4 std': RLCT_estimates_ols.std()}
+
+        with open('{}/results.pkl'.format(args.path), 'wb') as f:
+            pickle.dump(results_dict, f)
 
     # theorem 4 average
     # nlls_mean.mean(axis=0) shape should be 1, numbetas
-    saveimgname = '{}/thm4_average_lsfit.png'.format(args.path)
+    saveimgname = '{}/thm4_average_lsfit'.format(args.path)
     robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, saveimgname)
     results_dict.update({'rlct robust thm4 average': robust, 'rlct ols thm4 average': ols})
 
     # variance thermodynamic integration Imai
-    RLCT_estimates = np.empty(0)
-    args.betas = np.array([1 / np.log(args.n)])
-    for mc in range(0, args.MCs):
-        print('Starting mc {}/{}: var TI'.format(mc, args.MCs, beta_index, args.numbetas))
-        # draw new training-testing split
-        train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
-        _, var_nll, _ = approxinf_nll(train_loader, valid_loader, args, mc, 0, None)
-        RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
-
-    results_dict.update({'rlct var TI array': RLCT_estimates,
-                         'rlct var TI mean': RLCT_estimates.mean(),
-                         'rlct var TI std': RLCT_estimates.std()})
+    # RLCT_estimates = np.empty(0)
+    # args.betas = np.array([1 / np.log(args.n)])
+    # for mc in range(0, args.MCs):
+    #     print('Starting mc {}/{}: var TI'.format(mc, args.MCs, beta_index, args.numbetas))
+    #     # draw new training-testing split
+    #     train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
+    #     _, var_nll, _ = approxinf_nll(train_loader, valid_loader, args, mc, 0, None)
+    #     RLCT_estimates = np.append(RLCT_estimates, var_nll/(np.log(args.n)**2))
+    #
+    # results_dict.update({'rlct var TI array': RLCT_estimates,
+    #                      'rlct var TI mean': RLCT_estimates.mean(),
+    #                      'rlct var TI std': RLCT_estimates.std()})
 
     return results_dict
 
@@ -268,7 +273,7 @@ def setup_w0(args):
 
 def main():
 
-    random.seed()
+    # random.seed()
 
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Variational Inference')
@@ -400,14 +405,20 @@ def main():
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
 
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
+    # parser.add_argument('--seed', type=int, default=1, metavar='S',
+    #                     help='random seed (default: 1)')
 
     parser.add_argument("--mode", default='client')
 
     parser.add_argument("--port", default=62364)
 
     args = parser.parse_args()
+
+    # log results to directory
+    path = './{}_sanity_check/taskid{}'.format(args.VItype, args.taskid)
+    if not os.path.exists(path):
+        os.makedirs(path)
+    sys.stdout = open('{}/out.txt'.format(path), 'w')
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
@@ -437,27 +448,21 @@ def main():
     # get grid of betas for RLCT asymptotics
     set_betas(args)
 
-    # log results to directory
-    path = './{}_sanity_check/taskid{}'.format(args.VItype, args.taskid)
-    if not os.path.exists(path):
-        os.makedirs(path)
-
     # record configuration for saving
     args.path = path
     args_dict = vars(args)
     print(args_dict)
+    with open('{}/config.pkl'.format(path), 'wb') as f:
+        pickle.dump(args_dict, f)
 
     print('Starting taskid {}'.format(args.taskid))
     results_dict = lambda_asymptotics(args, kwargs)
-    results_dict.update({"true_RLCT": args.trueRLCT, "d on 2": args.w_dim/2})
     print(results_dict)
     print('Finished taskid {}'.format(args.taskid))
 
-
     with open('{}/results.pkl'.format(path), 'wb') as f:
         pickle.dump(results_dict, f)
-    with open('{}/config.pkl'.format(path), 'wb') as f:
-        pickle.dump(args_dict, f)
+
 
     # pickle.load(open('{}/config.pkl'.format(path),"rb"))
     # pickle.load(open('{}/results.pkl'.format(path),"rb"))
