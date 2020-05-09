@@ -17,7 +17,7 @@ mc_adaptation_steps=4000
 mc_num_results=10000
 ```
 
-Same experiment as `8-5-2020-B`.
+Same experiment as `8-5-2020-B`. Robust estimate of **RLCT = 0.46887382556375895**.
 
 ## Completed
 
@@ -34,7 +34,6 @@ num_training_sets = 3
 mc_burnin_steps=5000
 mc_adaptation_steps=4000
 mc_num_results=10000
-Robust estimate of RLCT = 0.1903613511780412
 ```
 
-MC chains seemed in good health.
+MC chains seemed in good health. Robust estimate of **RLCT = 0.1903613511780412**.
