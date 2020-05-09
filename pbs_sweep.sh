@@ -14,7 +14,7 @@ module load python3
 module load pytorch
 
 for i in {0..4799}; do
- python3 sweep.py $i &
+ python3 sweep.py $i > $PBS_JOBID_$i.log &
 done
 
 wait

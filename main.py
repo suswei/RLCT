@@ -418,7 +418,6 @@ def main():
     path = './{}_sanity_check/taskid{}'.format(args.VItype, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
-    sys.stdout = open('{}/out.txt'.format(path), 'w')
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
@@ -466,6 +465,7 @@ def main():
 
     # pickle.load(open('{}/config.pkl'.format(path),"rb"))
     # pickle.load(open('{}/results.pkl'.format(path),"rb"))
+
 
 if __name__ == "__main__":
     main()
