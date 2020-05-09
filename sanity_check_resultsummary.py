@@ -70,8 +70,8 @@ def sanity_check_result_summary(VItype, hyperparameter_config):
     results_config_total = pd.DataFrame()
 
     for i in range(len(hyperparameter_config['dataset'])*len(hyperparameter_config['syntheticsamplesize'])*len(hyperparameter_experiments)*len(hyperparameter_config['MCs'])):
-        config_file_path = dir_path + 'taskid%s/config.pkl'%(i)
-        results_file_path = dir_path + 'taskid%s/results.pkl'%(i)
+        config_file_path = dir_path + 'taskid{}/config.pkl'.format(i)
+        results_file_path = dir_path + 'taskid{}/results.pkl'.format(i)
         if os.path.isfile(config_file_path) and os.path.isfile(results_file_path):
             config = pickle.load(open(config_file_path, "rb"))
             results = pickle.load(open(results_file_path,"rb"))
