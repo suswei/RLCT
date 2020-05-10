@@ -24,6 +24,10 @@ Experiment       Prior     ED        Actual
 
 ## Running
 
+## Completed
+
+In reverse chronological order in terms of completion time
+
 * **11-5-2020-A** on Grumble
 
 ```
@@ -36,11 +40,7 @@ mc_burnin_steps=30000
 mc_adaptation_steps=20000
 mc_num_results=10000
 ```
-Same experiment as `10-5-2020-J`.
-
-## Completed
-
-In reverse chronological order in terms of completion time
+Same experiment as `10-5-2020-J`. Robust estimate of **RLCT = 0.3969993277416406**.
 
 * **10-5-2020-J** on Grumble
 
