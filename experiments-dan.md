@@ -1,10 +1,42 @@
 # Experiment log
 
-Experiment notebooks are logged in `/experiments`.
+Experiment notebooks are logged in `/experiments` on the Dropbox. 
+
+```
+Mean distances
+==============
+
+ED = expected distance of prior
+
+Experiment       Prior     ED        Actual
+-------------------------------------------
+10-5-2020-J      0.1       0.361     0.347
+10-5-2020-I      1.0       3.606     3.428
+10-5-2020-H      1.0       3.606     3.363
+10-5-2020-G      0.05      0.180     0.175
+10-5-2020-F      0.05      0.180     0.173
+10-5-2020-E      0.05      0.180     0.167
+10-5-2020-D      0.05      0.180     0.173
+10-5-2020-C      0.05      0.180     0.178
+10-5-2020-B      0.05      0.180     0.183
+10-5-2020-A      0.1       0.361     0.374
+```
 
 ## Running
 
+* **11-5-2020-A** on Grumble
 
+```
+global_prior_weight_std = 0.1
+global_prior_bias_std = 0.1
+symmetry_factor = 3
+training_sample_size = 20
+num_training_sets = 3
+mc_burnin_steps=30000
+mc_adaptation_steps=20000
+mc_num_results=10000
+```
+Same experiment as `10-5-2020-J`.
 
 ## Completed
 
