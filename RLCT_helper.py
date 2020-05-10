@@ -22,7 +22,6 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
     robust_slope_estimate = regr.coef_[0]
 
     # vanilla ols fit
-
     ols_model = OLS(temperedNLL_perMC_perBeta, add_constant(1 / args.betas)).fit()
     ols_intercept_estimate = ols_model.params[0]
     # slope_estimate = min(ols_model.params[1],args.w_dim/2)
@@ -108,6 +107,9 @@ def set_betas(args):
         args.betas = 1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas)
         if args.betalogscale:
             args.betas = 1 / np.linspace(np.log(args.n) / args.betasbegin, np.log(args.n) / args.betasend,
+                                         args.numbetas)
+        elif args.betanscale:
+            args.betas = 1 / np.linspace(args.n / args.betasbegin, args.n / args.betasend,
                                          args.numbetas)
 
 

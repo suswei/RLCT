@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import os
 import argparse
 import random
-from sklearn.manifold import TSNE
+# from sklearn.manifold import TSNE
 import seaborn as sns
 import pandas as pd
 from random import randint
@@ -188,9 +188,10 @@ def lambda_asymptotics(args, kwargs):
 
     # theorem 4 average
     # nlls_mean.mean(axis=0) shape should be 1, numbetas
-    saveimgname = '{}/thm4_average_lsfit'.format(args.path)
-    robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, saveimgname)
-    results_dict.update({'rlct robust thm4 average': robust, 'rlct ols thm4 average': ols})
+    if args.MCs > 1:
+        saveimgname = '{}/thm4_average_lsfit'.format(args.path)
+        robust, ols = lsfit_lambda(nlls_mean.mean(axis=0), args, saveimgname)
+        results_dict.update({'rlct robust thm4 average': robust, 'rlct ols thm4 average': ols})
 
     # variance thermodynamic integration Imai
     # RLCT_estimates = np.empty(0)
@@ -374,6 +375,9 @@ def main():
 
     parser.add_argument('--betalogscale', action="store_true", default=False,
                         help='turn on if beta should be on 1/log n scale')
+
+    parser.add_argument('--betanscale', action="store_true", default=False,
+                        help='turn on if beta should be on 1/ n scale')
 
     parser.add_argument('--numbetas', type=int,  default=20,
                         help='how many betas should be swept between betasbegin and betasend')
