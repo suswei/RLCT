@@ -16,7 +16,7 @@ mc_burnin_steps=5000
 mc_adaptation_steps=4000
 mc_num_results=10000
 ```
-Same experiment as `10-5-2020-A` except that the global prior is now more localised (`std dev = 0.05`).
+Same experiment as `10-5-2020-A` except that the global prior is now more localised (`std dev = 0.05`). The Markov chains were less well mixed than the original prior, and **RLCT robust estimate was 0.0**.
 
 ## Completed
 
