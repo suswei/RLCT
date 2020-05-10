@@ -22,7 +22,7 @@ mc_burnin_steps=15000
 mc_adaptation_steps=14000
 mc_num_results=10000
 ```
-Same experiment as `10-5-2020-F, 10-5-2020-E`. **Robust estimate of RLCT = -0.14732375833049208**.
+Same experiment as `10-5-2020-F, 10-5-2020-E`. `min_ess = 0.00046881728`. **Robust estimate of RLCT = -0.14732375833049208**. It seems that we cannot fit to the posterior with this prior!
 
 * **10-5-2020-F** on Grumble
 
@@ -36,7 +36,7 @@ mc_burnin_steps=15000
 mc_adaptation_steps=14000
 mc_num_results=10000
 ```
-Same experiment as `10-5-2020-E`. **Robust estimate of RLCT = 0.5991095777790726**.
+Same experiment as `10-5-2020-E`. `min_ess = 0.0005416768`. **Robust estimate of RLCT = 0.5991095777790726**.
 
 * **10-5-2020-E** on Grumble
 
