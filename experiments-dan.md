@@ -10,6 +10,20 @@ Experiment notebooks are logged in `/experiments`.
 
 In reverse chronological order in terms of completion time
 
+* **10-5-2020-D** on Grumble
+
+```
+global_prior_weight_std = 0.05
+global_prior_bias_std = 0.05
+symmetry_factor = 3
+training_sample_size = 20
+num_training_sets = 3
+mc_burnin_steps=10000
+mc_adaptation_steps=8000
+mc_num_results=10000
+```
+Same experiment as `10-5-2020-C` except that the number of burnin and adaptation steps was doubled. Now the ESS/step looks better and **RLCT robust estimate was 0.052440834179538466**.
+
 * **10-5-2020-C** on Grumble
 
 ```
