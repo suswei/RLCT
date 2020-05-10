@@ -10,6 +10,20 @@ Experiment notebooks are logged in `/experiments`.
 
 In reverse chronological order in terms of completion time
 
+* **10-5-2020-J** on Grumble
+
+```
+global_prior_weight_std = 0.1
+global_prior_bias_std = 0.1
+symmetry_factor = 3
+training_sample_size = 20
+num_training_sets = 3
+mc_burnin_steps=30000
+mc_adaptation_steps=20000
+mc_num_results=10000
+```
+Back to `std=0.1` but now with more burnin and adaptation. ESS and other chain metrics look very healthy. **Robust estimate of RLCT = 0.2295389323186636**.
+
 * **10-5-2020-I** on Grumble
 
 ```
