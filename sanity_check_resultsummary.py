@@ -66,9 +66,7 @@ def sanity_check_result_summary(VItype, hyperparameter_config):
     keys, values = zip(*hyperparameter_config_subset.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-
     results_config_total = pd.DataFrame()
-
     for i in range(len(hyperparameter_config['dataset'])*len(hyperparameter_config['syntheticsamplesize'])*len(hyperparameter_experiments)*len(hyperparameter_config['MCs'])):
         config_file_path = dir_path + 'taskid{}/config.pkl'.format(i)
         results_file_path = dir_path + 'taskid{}/results.pkl'.format(i)
@@ -78,7 +76,9 @@ def sanity_check_result_summary(VItype, hyperparameter_config):
 
             results_config = {key: value for key, value in config.items() if key in tuple(['dataset','syntheticsamplesize']) + keys + ('trueRLCT', 'w_dim')}
             results_config.update({key: value[0] for key, value in results.items() if key in ['rlct robust thm4 array', 'rlct ols thm4 array']})
-            results_config_total = pd.concat([results_config_total, pd.DataFrame.from_dict(results_config, orient='index').transpose()],axis=0)
+            results_config = {key: [value] for key, value in results_config.items()}
+
+            results_config_total = pd.concat([results_config_total,pd.DataFrame.from_dict(results_config)],axis=0)
 
     results_config_total['d_on_2'] = results_config_total.apply(lambda row: row.w_dim / 2, axis=1)
 
@@ -107,6 +107,12 @@ def sanity_check_result_summary(VItype, hyperparameter_config):
 
             fig_title = '{}, {}, {}, <br>'.format(dataset, VItype, method)
             for index, key in enumerate(keys):
+                if index < len(keys)-1:
+                    fig_title += '{}: {}, '.format(key, temp[key])
+                else:
+                    fig_title += '{}: {}'.format(key, temp[key])
+            '''
+            for index, key in enumerate(keys): # if there are too many hyperparameters, exhibit the fig title in several lines.
                 if index % 2 == 0:
                     fig_title += '{}: {}, '.format(key, temp[key])
                 else:
@@ -114,10 +120,19 @@ def sanity_check_result_summary(VItype, hyperparameter_config):
                         fig_title += '{}: {}, <br>'.format(key, temp[key])
                     else:
                         fig_title += '{}: {}'.format(key, temp[key])
-
+            '''
             draw_plot(method, results_oneconfig_dataset, fig_title, save_path)
 
-def main(VItype, hyperparameter_config):
+def main( ):
+    VItype = 'implicit'
+    hyperparameter_config = {
+        'dataset': ['reducedrank_synthetic', 'tanh_synthetic'],
+        'syntheticsamplesize': [1000, 5000],
+        'dpower': [0.4],
+        'betasbegin': [0.05],
+        'betasend': [0.2],
+        'MCs': 50*[1]
+    }
 
     dir_path = './{}_sanity_check/'.format(VItype)
 
