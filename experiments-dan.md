@@ -25,6 +25,21 @@ Experiment       Prior     ED        Actual
 
 ## Running
 
+* **11-5-2020-C** on Grumble
+
+```
+num_betas = 20
+global_prior_weight_std = 0.1
+global_prior_bias_std = 0.1
+symmetry_factor = 3
+training_sample_size = 20
+num_training_sets = 3
+mc_burnin_steps=30000
+mc_adaptation_steps=20000
+mc_num_results=10000
+```
+Same experiment as `11-5-2020-A,10-5-2020-J` except with twice as many beta values.
+
 ## Completed
 
 In reverse chronological order in terms of completion time
