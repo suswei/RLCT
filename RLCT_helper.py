@@ -32,9 +32,14 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
              label='robust ols')
     plt.plot(1 / args.betas, ols_intercept_estimate + ols_slope_estimate * 1 / args.betas, 'b-', label='ols')
 
-    plt.title("d_on_2 = {}, true lambda = {:.1f} "
-              "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
-              .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
+    if args.trueRLCT is None:
+        plt.title("d_on_2 = {}, true lambda = {} "
+                  "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
+                  .format(args.w_dim / 2, 'unknown', robust_slope_estimate, ols_slope_estimate), fontsize=8)
+    else:
+        plt.title("d_on_2 = {}, true lambda = {:.1f} "
+                  "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
+                  .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
     plt.xlabel("1/beta", fontsize=8)
     plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
     plt.legend()
@@ -58,7 +63,7 @@ def retrieve_model(args):
     if args.network == 'logistic':
         model = models.logistic(input_dim=args.input_dim, bias=args.bias)
     if args.network == 'ffrelu':
-        model = models.ffrelu(input_dim=args.input_dim, output_dim=args.output_dim)
+        model = models.ffrelu(input_dim=args.input_dim, output_dim=args.output_dim, H1=args.H1, H2=args.H2)
     if args.network == 'tanh':
         model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
     if args.network == 'reducedrank':
@@ -73,7 +78,7 @@ def retrieve_model(args):
     elif args.network in ['tanh', 'reducedrank']:
         w_dim = (args.input_dim + args.output_dim) * args.H
     else:
-        w_dim = count_parameters(model) * (args.output_dim - 1) / args.output_dim
+        w_dim = count_parameters(model)
 
     return model, w_dim
 
@@ -166,10 +171,26 @@ def weights_to_dict(args, sampled_weights):
 
         elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
 
-            a_params = sampled_weights[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H, )
+            a_params = sampled_weights[i, 0:(args.input_dim * args.H)].reshape(args.input_dim, args.H)
             b_params = sampled_weights[i, (args.input_dim * args.H):].reshape(args.H, args.output_dim)
 
             list_of_param_dicts.append({'a': a_params, 'b': b_params}.copy())
+
+        elif args.dataset == 'ffrelu_synthetic':
+
+            W1 = sampled_weights[i, 0:(args.input_dim * args.H1)].reshape(args.input_dim, args.H1)
+            temp = args.input_dim * args.H1
+            W2 = sampled_weights[i, temp:(temp+args.H1*args.H2)].reshape(args.H1, args.H2)
+            temp = temp+args.H1*args.H2
+            W3 = sampled_weights[i, temp:(temp+args.H2*args.output_dim)].reshape(args.H2, args.output_dim)
+            temp = temp+args.H2*args.output_dim
+            B1 = sampled_weights[i,temp:(temp+args.H1)].reshape(1,args.H1)
+            temp = temp+args.H1
+            B2 = sampled_weights[i,temp:(temp+args.H2)].reshape(1,args.H2)
+            temp = temp+args.H2
+            B3 = sampled_weights[i,temp:(temp+args.output_dim)].reshape(1,args.output_dim)
+
+            list_of_param_dicts.append({'W1': W1, 'W2': W2, 'W3': W3, 'B1': B1, 'B2': B2, 'B3': B3}.copy())
 
     return list_of_param_dicts
 
@@ -182,32 +203,36 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
 
     if args.dataset == 'logistic_synthetic':
 
-        w = param_dictionary['w']
-        b = param_dictionary['b']
-
-        prob = torch.sigmoid(torch.mm(x, w) + b)
+        prob = torch.sigmoid(torch.mm(x, param_dictionary['w']) + param_dictionary['b'])
         loss = nn.BCELoss(reduction='sum')
 
         return loss(prob, y)  # same as -sum(y*np.log(prob)+(1-y)*np.log(1-prob))
 
     elif args.dataset == 'tanh_synthetic':
-        a = param_dictionary['a']
-        b = param_dictionary['b']
 
         loss = nn.MSELoss(reduction='sum')
-        mean = torch.matmul(torch.tanh(torch.matmul(x, a)), b)
+        mean = torch.matmul(torch.tanh(torch.matmul(x, param_dictionary['a'])), param_dictionary['b'])
 
         return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
 
     elif args.dataset == 'reducedrank_synthetic':
 
-        a = param_dictionary['a']
-        b = param_dictionary['b']
-
         loss = nn.MSELoss(reduction='sum')
-        mean = torch.matmul(torch.matmul(x, a), b)
+        mean = torch.matmul(torch.matmul(x, param_dictionary['a']), param_dictionary['b'])
 
         return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+
+    elif args.dataset == 'ffrelu_synthetic':
+
+        # calculate hidden and output layers
+        h1 = F.relu((x @ param_dictionary['W1']) + param_dictionary['B1'])
+        h2 = F.relu((h1 @ param_dictionary['W2']) + param_dictionary['B2'])
+        mean = (h2 @ param_dictionary['W3']) + param_dictionary['B3']
+
+        loss = nn.MSELoss(reduction='sum')
+
+        return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+
 
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework

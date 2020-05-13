@@ -22,17 +22,17 @@ class cnn(nn.Module):
 
 
 class ffrelu(nn.Module):
-    def __init__(self,input_dim, output_dim):
+    def __init__(self,input_dim, output_dim,H1,H2):
         super(ffrelu, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, output_dim)
+        self.fc1 = nn.Linear(input_dim, H1)
+        self.fc2 = nn.Linear(H1, H2)
+        self.fc3 = nn.Linear(H2, output_dim)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
+        return x
 
 # for binary classification
 class logistic(nn.Module):

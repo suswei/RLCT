@@ -271,6 +271,19 @@ def setup_w0(args):
             args.H = 1
         # in this case, the rank r for args.b_params*args.a_params is H, output_dim + H < input_dim + r is satisfied
 
+    elif args.dataset == 'ffrelu_synthetic':
+
+        args.input_dim = 1
+        args.output_dim = 1
+        args.dataset = 'ffrelu_synthetic'
+        args.network = 'ffrelu'
+
+        # set state dictionary of ffrelu
+
+        ffrelu_true = models.ffrelu(args.input_dim, args.output_dim, 2, 4)
+
+        args.true_mean = ffrelu_true
+
 
 def main():
 
@@ -284,7 +297,11 @@ def main():
 
     parser.add_argument('--dataset', type=str, default='logistic_synthetic',
                         help='dataset name from dataset_factory.py (default: )',
-                        choices=['iris_binary', 'breastcancer_binary', 'mnist_binary', 'mnist', 'logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'])
+                        choices=['iris_binary', 'breastcancer_binary', 'mnist_binary', 'mnist',
+                                 'logistic_synthetic',
+                                 'tanh_synthetic',
+                                 'reducedrank_synthetic',
+                                 'ffrelu_synthetic'])
 
     parser.add_argument('--syntheticsamplesize', type=int, default=100,
                         help='sample size of synthetic dataset')
@@ -301,6 +318,9 @@ def main():
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
                         choices=['ffrelu','cnn','logistic', 'tanh', 'reducedrank'])
+
+    parser.add_argument('--H1',type=int, help = 'number of hidden units in layer 1 of ffrelu')
+    parser.add_argument('--H2',type=int, help = 'number of hidden units in layer 2 of ffrelu')
 
     parser.add_argument('--bias',action='store_true', default=False, help='turn on if model should have bias terms') #only applies to logistic right now, for purpose of testing lr_synthetic
 

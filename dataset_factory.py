@@ -162,6 +162,33 @@ def get_dataset_by_id(args,kwargs):
 
         if args.sanity_check:
             args.network = 'reducedrank'
+
+    elif args.dataset == 'ffrelu_synthetic':
+
+        m = MultivariateNormal(torch.zeros(args.input_dim), torch.eye(args.input_dim))  # the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
+        X = m.sample(torch.Size([2 * args.syntheticsamplesize]))
+        mean = args.true_mean(X)
+        y_rv = MultivariateNormal(mean, torch.eye(args.output_dim))
+        y = y_rv.sample()
+
+        # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
+        train_size = args.syntheticsamplesize
+        valid_size = int(args.syntheticsamplesize * 0.5)
+        test_size = 2 * args.syntheticsamplesize - train_size - valid_size
+
+        dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),
+                                                                                   [train_size, valid_size,
+                                                                                    test_size])
+
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True, **kwargs)
+        args.loss_criterion = nn.MSELoss(reduction='sum')
+        args.trueRLCT = None
+
+        if args.sanity_check:
+            args.network = 'ffrelu'
+
     else:
         print('Not a valid dataset name. See options in dataset-factory')
 
