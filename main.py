@@ -153,7 +153,11 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
             if args.posterior_viz:
                 posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath)
 
-    return nllw_array.mean(), nllw_array.var(), nllw_array
+
+    nll_mean = sum(nllw_array)/len(nllw_array)
+    nll_var = sum((x-nll_mean)**2 for x in nllw_array )/len(nllw_array)
+
+    return nll_mean, nll_var, nllw_array
 
 
 def lambda_asymptotics(args, kwargs):
@@ -342,7 +346,7 @@ def main():
                         help='prior used on model parameters (default: gaussian)',
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
 
-    parser.add_argument('--epsilon_mc', type=int, default=500, help='used in IVI')
+    parser.add_argument('--epsilon_mc', type=int, default=100, help='used in IVI')
 
     parser.add_argument('--pretrainDepochs', type=int, default=100,
                         help='number of epochs to pretrain discriminator')

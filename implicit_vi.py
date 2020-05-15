@@ -114,12 +114,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             # opt generator
             eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)
             sampled_weights = G(eps) # [args.epsilon_mc, w_dim]
-            batch_ELBO_reconstr = 0
-
-            for i in range(args.epsilon_mc):  # loop over rows of sampled_weights corresponding to different epsilons
-                current_w = sampled_weights[i, :].unsqueeze(dim=0)
-                param_dict = weights_to_dict(args, current_w)[0]
-                batch_ELBO_reconstr += calculate_nllsum_paramdict(args, target, data, param_dict)
+            list_param_dicts = weights_to_dict(args,sampled_weights)
+            batch_ELBO_reconstr = sum(calculate_nllsum_paramdict(args, target, data, param_dict) for param_dict in list_param_dicts)
 
             reconstr_err_component = batch_ELBO_reconstr / (args.epsilon_mc * len(target))
             discriminator_err_component = torch.mean(D(sampled_weights)) / (args.betas[beta_index] * args.n)
@@ -142,6 +138,9 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             with torch.no_grad():
                 nllw_array_train = approxinf_nll_implicit(train_loader, G, args)
                 nllw_array_valid = approxinf_nll_implicit(valid_loader, G, args)
+                nllw_mean_train = sum(nllw_array_train)/len(nllw_array_train)
+                nllw_mean_valid = sum(nllw_array_valid)/len(nllw_array_valid)
+
 
             print('Train Epoch: {} '
                   '\tLoss primal: {:.6f} '
@@ -151,8 +150,8 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                   .format(epoch,
                           loss_primal.data.item(),
                           loss_dual.data.item(),
-                          nllw_array_train.mean()/len(train_loader.dataset),
-                          nllw_array_valid.mean()/len(valid_loader.dataset)))
+                          nllw_mean_train/len(train_loader.dataset),
+                          nllw_mean_valid/len(valid_loader.dataset)))
 
         # with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
         #     D.eval()
@@ -252,9 +251,12 @@ def approxinf_nll_implicit(train_loader, G, args):
 
     param_dicts = sample_IVI(args, G, num_draws=args.R)
 
-    nllw_array = np.array([])
-    for param_dict in param_dicts:
-        nllw_array = np.append(nllw_array, calculate_nllsum_paramdict(args, train_loader.dataset[:][1], train_loader.dataset[:][0], param_dict))
+    # nllw_array = np.array([])
+    # for param_dict in param_dicts:
+    #     nllw_array = np.append(nllw_array, calculate_nllsum_paramdict(args, train_loader.dataset[:][1], train_loader.dataset[:][0], param_dict))
 
-    return nllw_array
+    wholey = train_loader.dataset[:][1]
+    wholex = train_loader.dataset[:][0]
+
+    return [calculate_nllsum_paramdict(args,wholey,wholex, param_dict) for param_dict in param_dicts]
 

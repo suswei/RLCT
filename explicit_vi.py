@@ -59,7 +59,7 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
 
             if args.dataset == 'logistic_synthetic':
                 reconstr_err = args.loss_criterion(output, target)
-            elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
+            elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic','ffrelu_synthetic']:
                 reconstr_err = args.loss_criterion(output, target) * 0.5
 
             loss = reconstr_err / len(target) + loss_prior  # this is the ELBO
@@ -78,8 +78,24 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
             #                    reconstr_err.data.item() / len(target), loss_prior.data.item()))
 
         if epoch % args.log_interval == 0:
-            print('Train Epoch: {} \tLoss: {:.6f}\tLoss error: {:.6f}\tLoss weights: {:.6f}'.format(
-                epoch, loss.data.item(), reconstr_err.data.item()/len(target), loss_prior.data.item()))
+            
+            with torch.no_grad():
+                nllw_array_train = approxinf_nll_explicit(train_loader, var_model, args)
+                nllw_array_valid = approxinf_nll_explicit(valid_loader, var_model, args)
+                nllw_mean_train = sum(nllw_array_train)/len(nllw_array_train)
+                nllw_mean_valid = sum(nllw_array_valid)/len(nllw_array_valid)
+
+            print('Train Epoch: {} '
+                  '\tLoss: {:.6f}'
+                  '\tLoss error: {:.6f}'
+                  '\tLoss weights: {:.6f}'
+                  '\t L_n(w) training: {:.6f} '
+                  '\t L_n(w) valid: {:.6f}'.format(epoch,
+                                                   loss.data.item(),
+                                                   reconstr_err.data.item()/len(target),
+                                                   loss_prior.data.item(),
+                                                   nllw_mean_train / len(train_loader.dataset),
+                                                   nllw_mean_valid / len(valid_loader.dataset)))
 
     #     with torch.no_grad():  # to save memory, no intermediate activations used for gradient calculation is stored.
     #         var_model.eval()
@@ -184,19 +200,25 @@ def approxinf_nll_explicit(train_loader, var_model, args):
 
     wholex = train_loader.dataset[:][0]
     wholey = train_loader.dataset[:][1]
-    sample = pyvarinf.Sample(var_model=var_model)
 
-    nllw_array = np.array([])
-    for r in range(0, args.R):
-        sample.draw()
-        output = sample(wholex)
+    with torch.no_grad():
+        sample = pyvarinf.Sample(var_model=var_model)
 
-        if args.dataset == 'logistic_synthetic':
-            nllw_array = np.append(nllw_array, args.loss_criterion(output, wholey).detach().numpy())
+        # nllw_array = np.array([])
+        nllw_array = []
+        for r in range(0, args.R):
+            sample.draw()
+            output = sample(wholex)
 
-        elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-            nllw_array = np.append(nllw_array, args.n * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * args.loss_criterion(output, wholey).detach().numpy())
-        else:
-            print('misspelling in dataset name!')
+            if args.dataset == 'logistic_synthetic':
+                # nllw_array = np.append(nllw_array, args.loss_criterion(output, wholey).detach().numpy())
+                nllw_array += [args.loss_criterion(output, wholey)]
+
+            elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic','ffrelu_synthetic']:
+                # nllw_array = np.append(nllw_array, args.n * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * args.loss_criterion(output, wholey).detach().numpy())
+                nllw_array += [args.n * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * args.loss_criterion(output, wholey)]
+
+            else:
+                print('misspelling in dataset name!')
 
     return nllw_array
