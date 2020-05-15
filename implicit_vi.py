@@ -139,7 +139,20 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
             #             epoch, batch_idx * len(data), args.n, 100. * batch_idx / len(train_loader), loss_primal.data.item(), loss_dual.data.item()))
 
         if epoch % args.log_interval == 0:
-            print('Train Epoch: {} \tLoss primal: {:.6f}\tLoss dual: {:.6f}'.format(epoch, loss_primal.data.item(), loss_dual.data.item()))
+            with torch.no_grad():
+                nllw_array_train = approxinf_nll_implicit(train_loader, G, args)
+                nllw_array_valid = approxinf_nll_implicit(valid_loader, G, args)
+
+            print('Train Epoch: {} '
+                  '\tLoss primal: {:.6f} '
+                  '\tLoss dual: {:.6f} '
+                  '\t L_n(w) training: {:.6f} '
+                  '\t L_n(w) valid: {:.6f}'
+                  .format(epoch,
+                          loss_primal.data.item(),
+                          loss_dual.data.item(),
+                          nllw_array_train.mean()/len(train_loader.dataset),
+                          nllw_array_valid.mean()/len(valid_loader.dataset)))
 
         # with torch.no_grad(): #to save memory, no intermediate activations used for gradient calculation is stored.
         #     D.eval()

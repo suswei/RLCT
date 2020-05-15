@@ -116,7 +116,7 @@ def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
 def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath):
 
     args.epsilon_dim = args.w_dim
-    args.epsilon_mc = args.batchsize  # TODO: is epsilon_mc sensitive?
+    # args.epsilon_mc = args.batchsize  # TODO: is epsilon_mc sensitive?
 
     if args.VItype == 'implicit':
 
@@ -280,7 +280,8 @@ def setup_w0(args):
 
         # set state dictionary of ffrelu
 
-        ffrelu_true = models.ffrelu(args.input_dim, args.output_dim, 2, 4)
+        # Currently hardcoded true hidden unit numbers
+        ffrelu_true = models.ffrelu(args.input_dim, args.output_dim, 4, 1)
 
         args.true_mean = ffrelu_true
 
@@ -340,6 +341,8 @@ def main():
     parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
                         help='prior used on model parameters (default: gaussian)',
                         choices=['gaussian', 'mixtgauss', 'conjugate', 'conjugate_known_mean'])
+
+    parser.add_argument('--epsilon_mc', type=int, default=500, help='used in IVI')
 
     parser.add_argument('--pretrainDepochs', type=int, default=100,
                         help='number of epochs to pretrain discriminator')
