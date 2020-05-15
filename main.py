@@ -240,6 +240,9 @@ def setup_w0(args):
 
         args.output_dim = 1
 
+        if args.sanity_check:
+            args.network = 'logistic'
+
     elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
         if args.dpower is None:
@@ -248,6 +251,9 @@ def setup_w0(args):
             args.H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
         args.a_params = torch.zeros([1, args.H], dtype=torch.float32)
         args.b_params = torch.zeros([args.H, 1], dtype=torch.float32)
+
+        if args.sanity_check:
+            args.network = 'tanh'
 
     elif args.dataset == 'reducedrank_synthetic':
 
@@ -275,20 +281,20 @@ def setup_w0(args):
             args.H = 1
         # in this case, the rank r for args.b_params*args.a_params is H, output_dim + H < input_dim + r is satisfied
 
+        if args.sanity_check:
+            args.network = 'reducedrank'
+
     elif args.dataset == 'ffrelu_synthetic':
 
         args.input_dim = 1
         args.output_dim = 1
         args.dataset = 'ffrelu_synthetic'
-        args.network = 'ffrelu'
-
-        # set state dictionary of ffrelu
 
         # Currently hardcoded true hidden unit numbers
-        ffrelu_true = models.ffrelu(args.input_dim, args.output_dim, 4, 1)
+        args.true_mean = models.ffrelu(args.input_dim, args.output_dim, 4, 2)
 
-        args.true_mean = ffrelu_true
-
+        if args.sanity_check:
+            args.network = 'ffrelu'
 
 def main():
 

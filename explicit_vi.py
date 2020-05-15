@@ -78,7 +78,6 @@ def train_explicitVI(train_loader, valid_loader, args, mc, beta_index, verbose, 
             #                    reconstr_err.data.item() / len(target), loss_prior.data.item()))
 
         if epoch % args.log_interval == 0:
-            
             with torch.no_grad():
                 nllw_array_train = approxinf_nll_explicit(train_loader, var_model, args)
                 nllw_array_valid = approxinf_nll_explicit(valid_loader, var_model, args)
