@@ -165,7 +165,8 @@ def get_dataset_by_id(args,kwargs):
         m = MultivariateNormal(torch.zeros(args.input_dim), torch.eye(args.input_dim))  # the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = m.sample(torch.Size([2 * args.syntheticsamplesize]))
         y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
-        y = args.true_mean(X) + y_rv.sample(torch.Size([2*args.syntheticsamplesize]))
+        with torch.no_grad():
+            y = args.true_mean(X) + y_rv.sample(torch.Size([2*args.syntheticsamplesize]))
 
         # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = args.syntheticsamplesize

@@ -178,10 +178,12 @@ for H1 in H1range:
             args.betas = [1.0]
             beta_index = 0
             G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath=None)
-            pred = compute_predictive_dist(args, G, test_loader)
-            Bg[mc] = compute_Bg(pred,test_loader,args)
+            with torch.no_grad():
+                pred = compute_predictive_dist(args, G, test_loader)
+                Bg[mc] = compute_Bg(pred,test_loader,args)
 
             rlct[mc] = train(args, train_loader, valid_loader)
+            print('ffrelu H1 {}, H2 {}: mc {}: Bg {} rlct {}'.format(H1, H2, mc, Bg[mc], rlct[mc]))
 
         print('H1: {}, H2: {}'.format(H1,H2))
         print('E_n Bg(n): {}'.format(Bg.mean()))
