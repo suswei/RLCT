@@ -1,3 +1,5 @@
+# The setup here is similar to Table 8.1 in Watanabe textbook. I don't use his prior for A and B however. He also never specifies how he chose A_0 and B_0
+
 from __future__ import print_function
 
 from torch.distributions.uniform import Uniform
@@ -15,18 +17,18 @@ class Args:
 
     dataset = 'reducedrank_synthetic'
     sanity_check = True
-    syntheticsamplesize = 200
+    syntheticsamplesize = 1000
 
     network = 'reducedrank'
     VItype = 'implicit'
     batchsize = 100
-    epochs = 400
+    epochs = 200
     epsilon_mc = 100
     pretrainDepochs = 100
     trainDepochs = 50
     n_hidden_D = 128
-    num_hidden_layers_D = 1
-    n_hidden_G = 128
+    num_hidden_layers_D = 2
+    n_hidden_G = 256
     num_hidden_layers_G = 1
 
     lr_primal = 1e-3
@@ -144,5 +146,5 @@ for H in Hrange:
         print('hat RLCT/n: {}'.format(rlct.mean() / args.syntheticsamplesize))
         results += {'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize}
 
-with open('generalization_results.pkl', 'wb') as f:
+with open('generalization_rr.pkl', 'wb') as f:
     pickle.dump(results, f)
