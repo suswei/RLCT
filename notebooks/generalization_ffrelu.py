@@ -27,19 +27,19 @@ class Args:
 
     dataset = 'ffrelu_synthetic'
     sanity_check = True
-    syntheticsamplesize = 500
+    syntheticsamplesize = 1000
 
     network = 'ffrelu'
     VItype = 'implicit'
     batchsize = 100
     epochs = 200
     epsilon_mc = 100
-    pretrainDepochs = 10
-    trainDepochs = 2
-    n_hidden_D = 50
+    pretrainDepochs = 100
+    trainDepochs = 50
+    n_hidden_D = 128
     num_hidden_layers_D = 2
-    n_hidden_G = 50
-    num_hidden_layers_G = 2
+    n_hidden_G = 256
+    num_hidden_layers_G = 1
 
     lr_primal = 1e-3
     lr_dual = 5e-2
