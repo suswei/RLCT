@@ -188,7 +188,7 @@ for H1 in H1range:
         print('H1: {}, H2: {}'.format(H1,H2))
         print('E_n Bg(n): {}'.format(Bg.mean()))
         print('hat RLCT/n: {}'.format(rlct.mean()/args.syntheticsamplesize))
-        results += {'H1':H1, 'H2':H2, 'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize}
+        results.append({'H1':H1, 'H2':H2, 'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize})
 
 
 with open('generalization_ffrelu.pkl', 'wb') as f:

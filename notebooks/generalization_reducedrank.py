@@ -144,7 +144,7 @@ for H in Hrange:
         print('H: {}'.format(H))
         print('E_n Bg(n): {}'.format(Bg.mean()))
         print('hat RLCT/n: {}'.format(rlct.mean() / args.syntheticsamplesize))
-        results += {'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize}
+        results.append({'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize})
 
 with open('generalization_rr.pkl', 'wb') as f:
     pickle.dump(results, f)
