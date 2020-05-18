@@ -1,22 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# # Generalisation error
-#
-# In this experiment we vary the architecture of a feedforward ReLU network
-# and plot the (average) Bayesian generalization error as a function over the architecture.
-#
-# We estimate the (average) Bayesian generalisation error as
-# \begin{equation}
-# E_n B_g(n) \approx E_n \frac{1}{n'} \sum_{i=1}^n' \log \frac{q(y_i|x_i)}{p(y_i |x_i,, \mathcal D_n)}
-# \end{equation}
-# where $\mathcal D_n$ is the training set and $n'$ is the size of the test set.
-#
-#
-
-# In[14]:
-
-
 from __future__ import print_function
 
 from torch.distributions.uniform import Uniform
@@ -28,6 +9,7 @@ import numpy as np
 
 sys.path.append('../')
 from main import *
+
 
 class Args:
 
@@ -67,39 +49,9 @@ class Args:
 
     cuda = False
 
-args = Args()
+
+args=Args()
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-
-
-# Making sure we satisfy the theoretical conditions, the true distribution is made to be realizable.
-# In particular we generate data from with input and output dimension equal to 1 and $H_1=2, H_2=1$ from the following model
-#
-# ```python
-# class ffrelu(nn.Module):
-#     def __init__(self,input_dim, output_dim):
-#         super(ffrelu, self).__init__()
-#         self.fc1 = nn.Linear(input_dim, H1)
-#         self.fc2 = nn.Linear(H1, H2)
-#         self.fc3 = nn.Linear(H2, output_dim)
-#
-#     def forward(self, x):
-#         x = F.relu(self.fc1(x))
-#         x = F.relu(self.fc2(x))
-#         x = self.fc3(x)
-#         return x
-# ```
-
-# In[15]:
-
-
-args.input_dim = 6
-args.output_dim = 6
-
-args.a_params = torch.randn(args.input_dim,3)
-args.b_params = torch.randn(3,args.output_dim)
-H0 = torch.matrix_rank(torch.matmul(args.a_params,args.b_params))
-
-# In[16]:
 
 
 def train(args, train_loader, valid_loader):
@@ -125,6 +77,7 @@ def train(args, train_loader, valid_loader):
 
     return ivi_robust
 
+
 def compute_predictive_dist(args, G, loader):
 
     R = 1000
@@ -143,7 +96,7 @@ def compute_predictive_dist(args, G, loader):
     return pred_logprob/R
 
 
-def compute_EBg(pred_logprob,loader,args):
+def compute_Bg(pred_logprob,loader,args):
 
     wholex = loader.dataset[:][0]
     wholey = loader.dataset[:][1]
@@ -154,11 +107,15 @@ def compute_EBg(pred_logprob,loader,args):
     return (true_logprob-pred_logprob).mean()
 
 
-# In[17]:
+args.input_dim = 6
+args.output_dim = 6
+
+args.a_params = torch.randn(args.input_dim,3)
+args.b_params = torch.randn(3,args.output_dim)
+H0 = torch.matrix_rank(torch.matmul(args.a_params,args.b_params))
 
 Hrange = range(3, 6)
-results=[]
-
+results = []
 for H in Hrange:
 
         args.H = H
@@ -177,18 +134,15 @@ for H in Hrange:
             G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath=None)
             with torch.no_grad():
                 pred = compute_predictive_dist(args, G, test_loader)
-                Bg[mc] = compute_EBg(pred, test_loader, args)
+                Bg[mc] = compute_Bg(pred, test_loader, args)
 
             rlct[mc] = train(args, train_loader, valid_loader)
-            print('reduced rank regression model H = {}'.format(H))
-            print('mc {}: Bg {}'.format(mc, Bg[mc]))
-            print('mc {}: rlct {}'.format(mc, rlct[mc]))
+            print('reduced rank regression model H {}: mc {}: Bg {} rlct {}'.format(H,mc, Bg[mc], rlct[mc]))
 
         print('H: {}'.format(H))
         print('E_n Bg(n): {}'.format(Bg.mean()))
         print('hat RLCT/n: {}'.format(rlct.mean() / args.syntheticsamplesize))
         results += {'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ args.syntheticsamplesize}
-# In[ ]:
 
 with open('generalization_results.pkl', 'wb') as f:
     pickle.dump(results, f)
