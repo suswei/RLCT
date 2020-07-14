@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -P uj89
-#PBS -N warmn_rlct
+#PBS -N pyro
 #PBS -M susan.wei@unimelb.edu.au
 #PBS -m abe
 #PBS -q normal
@@ -16,7 +16,7 @@
 module load python3
 module load pytorch
 
-for i in {0..199}; do
+for i in {0..15}; do
  python3 sweep.py $i > $PBS_JOBID_$i.log &
 done
 
