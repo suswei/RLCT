@@ -35,9 +35,8 @@ def model_symmetric(X, Y, D_H, beta):
     pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)), obs=Y)
 
 # helper function for HMC inference
-def run_inference(model, args, X, Y):
+def run_inference(model, args, X, Y, beta):
     D_H = args.symmetry_factor
-    beta = args.beta
 
     start = time.time()
     kernel = NUTS(model)
@@ -77,12 +76,7 @@ def get_data_symmetric(args):
 
     return X, Y
 
-def main(args):
-
-    X, Y = get_data_symmetric(args)
-
-    # do inference
-    samples = run_inference(model_symmetric, args, X, Y)
+def expected_nll_posterior(samples, X, Y):
 
     nll = []
     for r in range(args.num_samples):
@@ -99,25 +93,36 @@ def main(args):
 
     return (sum(nll)/args.num_samples)
 
+def main(args):
+
+    X, Y = get_data_symmetric(args)
+
+    beta1 = 1.0/np.log(args.num_samples)
+    beta2 = 1.5/np.log(args.num_samples)
+
+    # do inference
+    samples_beta1 = run_inference(model_symmetric, args, X, Y, beta=beta1)
+    samples_beta2 = run_inference(model_symmetric, args, X, Y, beta=beta2)
+
+    return (expected_nll_posterior(samples_beta1, X, Y) - expected_nll_posterior(samples_beta2, X, Y))/(1/beta1 - 1/beta2)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
-    parser.add_argument("--beta", nargs='?', default=1.0, type=float)
     args = parser.parse_args()
 
-    path = './symm{}_beta{}'.format(args.symmetry_factor, args.beta)
+    path = './symm{}'.format(args.symmetry_factor)
     if not os.path.exists(path):
         os.makedirs(path)
-
-    args.beta = args.beta/np.log(args.num_data)
 
     args_dict = vars(args)
     print(args_dict)
     with open('{}/config.pkl'.format(path), 'wb') as f:
         pickle.dump(args_dict, f)
 
-    expected_nll_posterior = main(args)
-    torch.save(expected_nll_posterior, '{}/expected_nll_posterior.pt'.format(path))
+    rlct = main(args)
+    torch.save(rlct, '{}/rlct.pt'.format(path))
