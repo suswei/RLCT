@@ -33,8 +33,8 @@ def main(taskid):
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 pyro_example.py --symmetry_factor %s --beta %s"
-              %(taskid, temp['symmetry_factor'], temp['beta']))
+    os.system("python3 pyro_example.py --symmetry-factor %s --beta %s"
+              %(temp['symmetry_factor'], temp['beta']))
 
 
 if __name__ == "__main__":

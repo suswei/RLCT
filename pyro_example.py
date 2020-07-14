@@ -103,9 +103,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
-    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
-    parser.add_argument("--symmetry_factor", nargs='?', default=3, type=int)
+    parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
     parser.add_argument("--beta", nargs='?', default=1.0, type=float)
     args = parser.parse_args()
 
