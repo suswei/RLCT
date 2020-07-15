@@ -13,12 +13,14 @@ import pyro
 import pyro.distributions as dist
 from pyro.infer import HMC, MCMC, NUTS
 
+
 # the non-linearity we use in our neural network
 def nonlin(x):
     return torch.relu(x)
 
-def model_symmetric(X, Y, D_H, beta):
 
+# feedforward relu network with D_H hidden units, at "temperature" 1/beta
+def model(X, Y, D_H, beta):
     D_X, D_Y = X.shape[1], 1
 
     # sample first layer (we put unit normal priors on all weights)
@@ -34,18 +36,22 @@ def model_symmetric(X, Y, D_H, beta):
     # observe data
     pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)), obs=Y)
 
+
 # helper function for HMC inference
 def run_inference(model, args, X, Y, beta):
-    D_H = args.symmetry_factor
+    D_H = args.num_hidden
 
     start = time.time()
-    kernel = NUTS(model)
+    kernel = NUTS(model, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
     mcmc.run(X, Y, D_H, beta)
+    print(mcmc.diagnostics())
+    print(mcmc.summary(prob=0.9))
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
-# get data from symmetric model
+
+# get data from symmetric true distribution
 def get_data_symmetric(args):
     D_X = 2
     N = args.num_data
@@ -76,12 +82,11 @@ def get_data_symmetric(args):
 
     return X, Y
 
+
 def expected_nll_posterior(samples, X, Y):
 
     nll = []
     for r in range(args.num_samples):
-
-        # symmetric model
         w = samples['w'][r]
         b = samples['b'][r]
         z1 = nonlin(torch.matmul(X, w) + b)  # N D_H  <= first layer of activations
@@ -91,7 +96,8 @@ def expected_nll_posterior(samples, X, Y):
         ydist = dist.Normal(z2, 1)
         nll += [-ydist.log_prob(Y).sum()]
 
-    return (sum(nll)/args.num_samples)
+    return sum(nll)/args.num_samples
+
 
 def main(args):
 
@@ -101,18 +107,20 @@ def main(args):
     beta2 = 1.5/np.log(args.num_samples)
 
     # do inference
-    samples_beta1 = run_inference(model_symmetric, args, X, Y, beta=beta1)
-    samples_beta2 = run_inference(model_symmetric, args, X, Y, beta=beta2)
+    samples_beta1 = run_inference(model, args, X, Y, beta=beta1)
+    samples_beta2 = run_inference(model, args, X, Y, beta=beta2)
 
     return (expected_nll_posterior(samples_beta1, X, Y) - expected_nll_posterior(samples_beta2, X, Y))/(1/beta1 - 1/beta2)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
+    parser.add_argument("--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
+    parser.add_argument("--num-hidden", nargs='?', default=10, type=int)
+
     args = parser.parse_args()
 
     path = './symm{}'.format(args.symmetry_factor)
