@@ -45,8 +45,6 @@ def run_inference(model, args, X, Y, beta):
     kernel = NUTS(model, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
     mcmc.run(X, Y, D_H, beta)
-    print(mcmc.diagnostics())
-    print(mcmc.summary(prob=0.9))
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
@@ -100,17 +98,23 @@ def expected_nll_posterior(samples, X, Y):
 
 
 def main(args):
-
+    path = args.path
     X, Y = get_data_symmetric(args)
 
     beta1 = 1.0/np.log(args.num_samples)
     beta2 = 1.5/np.log(args.num_samples)
 
     # do inference
-    samples_beta1 = run_inference(model, args, X, Y, beta=beta1)
-    samples_beta2 = run_inference(model, args, X, Y, beta=beta2)
+    mcmc_beta1 = run_inference(model, args, X, Y, beta=beta1)
+    mcmc_beta2 = run_inference(model, args, X, Y, beta=beta2)
 
-    return (expected_nll_posterior(samples_beta1, X, Y) - expected_nll_posterior(samples_beta2, X, Y))/(1/beta1 - 1/beta2)
+    torch.save(mcmc_beta1.diagnostics(),'mcmc_beta1_diagnostics.pt'.format(path))
+    torch.save(mcmc_beta1.summary(),'mcmc_beta1_summary.pt'.format(path))
+    torch.save(mcmc_beta2.diagnostics(),'mcmc_beta2_diagnostics.pt'.format(path))
+    torch.save(mcmc_beta2.summary(),'mcmc_beta2_summary.pt'.format(path))
+
+    rlct = (expected_nll_posterior(mcmc_beta1.get_samples(), X, Y) - expected_nll_posterior(mcmc_beta2.get_samples(), X, Y))/(1/beta1 - 1/beta2)
+    torch.save(rlct, '{}/rlct.pt'.format(args.path))
 
 
 if __name__ == "__main__":
@@ -122,15 +126,15 @@ if __name__ == "__main__":
     parser.add_argument("--num-hidden", nargs='?', default=10, type=int)
 
     args = parser.parse_args()
-
-    path = './symm{}'.format(args.symmetry_factor)
-    if not os.path.exists(path):
-        os.makedirs(path)
-
     args_dict = vars(args)
     print(args_dict)
-    with open('{}/config.pkl'.format(path), 'wb') as f:
+
+    args.path = './symm{}'.format(args.symmetry_factor)
+    if not os.path.exists(args.path):
+        os.makedirs(args.path)
+
+    with open('{}/config.pkl'.format(args.path), 'wb') as f:
         pickle.dump(args_dict, f)
 
-    rlct = main(args)
-    torch.save(rlct, '{}/rlct.pt'.format(path))
+    main(args)
+
