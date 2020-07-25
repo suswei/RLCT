@@ -26,15 +26,17 @@ def main(taskid):
 
     taskid = int(taskid[0])
     hyperparameter_config = {
-        'symmetry_factor': [3,4,5,6,7,8,9,10],
-        'num_hidden': [10]
+        'symmetry_factor': list(range(3, 11)),# 3 to 10
+        'num_hidden': [10, 15, 20],
+        'num_data': [100,250,500],
+        'mc': list(range(10))
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 pyro_example.py --symmetry-factor %s --num-hidden %s"
-              %(temp['symmetry_factor'],temp['num_hidden']))
+    os.system("python3 pyro_example.py --symmetry-factor %s --num-hidden %s --num-data %s --mc %s"
+              %(temp['symmetry_factor'],temp['num_hidden'],temp['num_data'],temp['mc']))
 
 
 if __name__ == "__main__":
