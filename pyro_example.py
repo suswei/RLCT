@@ -46,28 +46,43 @@ def run_inference(model, args, X, Y, beta):
     mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
     mcmc.run(X, Y, D_H, beta)
     print('\nMCMC elapsed time:', time.time() - start)
-    return mcmc.get_samples()
+    return mcmc
 
 
 # get data from symmetric true distribution
 def get_data_symmetric(args):
+
     D_X = 2
     N = args.num_data
+    symmetry_factor = args.symmetry_factor
+    num_hidden = args.num_hidden
 
     a = 2 * np.pi / args.symmetry_factor
     t1 = np.array([[np.cos(a / 2), np.sin(a / 2)]])
 
-    w = np.vstack([np.matmul(t1, np.array([[np.cos(k * a), -np.sin(k * a)],
-                                           [np.sin(k * a), np.cos(k * a)]]), dtype=np.float32) for k in range(args.symmetry_factor)])
+    # w = np.vstack([np.matmul(t1, np.array([[np.cos(k * a), -np.sin(k * a)],
+    #                                        [np.sin(k * a), np.cos(k * a)]]), dtype=np.float32) for k in range(args.symmetry_factor)])
+    # w = np.transpose(w)
+    # b = -0.3 * np.ones((args.symmetry_factor))
+    # q = np.ones((args.symmetry_factor, 1))
+    # c = np.array([0.0])
+
+    w_list = [np.matmul(t1, np.array([[np.cos(k * a), -np.sin(k * a)],
+                                      [np.sin(k * a), np.cos(k * a)]])) for k in range(symmetry_factor)]
+    w_list.extend([np.zeros_like(w_list[0]) for k in range(num_hidden - symmetry_factor)])
+    w = np.vstack(w_list)
+
     w = np.transpose(w)
-    b = -0.3 * np.ones((args.symmetry_factor))
-    q = np.ones((args.symmetry_factor, 1))
+    b = np.concatenate([-0.3 * np.ones((symmetry_factor)), np.zeros((num_hidden - symmetry_factor))], axis=0)
+
+    # q = np.transpose(np.vstack([np.ones((num_hidden)), np.zeros((num_hidden))]))
+    q = np.concatenate([np.ones((symmetry_factor, 1)), np.zeros((num_hidden - symmetry_factor, 1))], axis=0)
     c = np.array([0.0])
 
-    w = torch.from_numpy(w)
-    b = torch.from_numpy(b)
-    q = torch.from_numpy(q)
-    c = torch.from_numpy(c)
+    w = torch.from_numpy(w).float()
+    b = torch.from_numpy(b).float()
+    q = torch.from_numpy(q).float()
+    c = torch.from_numpy(c).float()
 
     X = torch.linspace(-1, 1, N)
     X = torch.pow(X[:, np.newaxis], torch.arange(D_X))
@@ -108,33 +123,34 @@ def main(args):
     mcmc_beta1 = run_inference(model, args, X, Y, beta=beta1)
     mcmc_beta2 = run_inference(model, args, X, Y, beta=beta2)
 
-    torch.save(mcmc_beta1.diagnostics(),'mcmc_beta1_diagnostics.pt'.format(path))
-    torch.save(mcmc_beta1.summary(),'mcmc_beta1_summary.pt'.format(path))
-    torch.save(mcmc_beta2.diagnostics(),'mcmc_beta2_diagnostics.pt'.format(path))
-    torch.save(mcmc_beta2.summary(),'mcmc_beta2_summary.pt'.format(path))
+    torch.save(mcmc_beta1, '{}/mcmc_beta1.pt'.format(path))
+    torch.save(mcmc_beta2, '{}/mcmc_beta2.pt'.format(path))
 
     rlct = (expected_nll_posterior(mcmc_beta1.get_samples(), X, Y) - expected_nll_posterior(mcmc_beta2.get_samples(), X, Y))/(1/beta1 - 1/beta2)
-    torch.save(rlct, '{}/rlct.pt'.format(args.path))
-
+    torch.save(rlct, '{}/rlct.pt'.format(path))
+    print('rlct {}'.format(rlct))
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Bayesian neural network example")
+    parser = argparse.ArgumentParser(description="RLCT_HMC_symmetric")
     parser.add_argument("--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
     parser.add_argument("--num-hidden", nargs='?', default=10, type=int)
+    parser.add_argument("--mc", default=1, type=int)
 
     args = parser.parse_args()
     args_dict = vars(args)
     print(args_dict)
 
-    args.path = './symm{}'.format(args.symmetry_factor)
+    # create path
+    args.path = './symm{}_numhidden{}_numdata{}_mc{}'\
+        .format(args.symmetry_factor,args.num_hidden, args.num_data, args.mc)
     if not os.path.exists(args.path):
         os.makedirs(args.path)
 
-    with open('{}/config.pkl'.format(args.path), 'wb') as f:
-        pickle.dump(args_dict, f)
+    # save simulation setting
+    torch.save(args_dict, '{}/config.pt'.format(args.path))
 
     main(args)
 
