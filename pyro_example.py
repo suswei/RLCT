@@ -31,7 +31,7 @@ def model(X, Y, D_H, beta):
     # sample second layer
     q = pyro.sample("q", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
     c = pyro.sample("c", dist.Normal(torch.zeros((1, 1)), torch.ones((1, 1))))  # D_H D_H
-    z2 = nonlin(torch.matmul(z1, q)+c)  # N D_H  <= second layer of activations
+    z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
 
     # observe data
     pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)), obs=Y)
@@ -84,14 +84,11 @@ def get_data_symmetric(args):
     q = torch.from_numpy(q).float()
     c = torch.from_numpy(c).float()
 
-    X = torch.linspace(-1, 1, N)
-    X = torch.pow(X[:, np.newaxis], torch.arange(D_X))
+    X = 2 * torch.rand(N, 2) - 1
     z1 = nonlin(torch.matmul(X, w) + b)  # N D_H  <= first layer of activations
-    z2 = nonlin(torch.matmul(z1, q) + c)  # N D_H  <= second layer of activations
-
+    z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
     sigma_obs = 1.0
-    Y = z2 + sigma_obs * torch.randn(N)
-    Y = Y[:, np.newaxis]
+    Y = z2 + sigma_obs * torch.randn(N,1)
 
     return X, Y
 
@@ -105,7 +102,7 @@ def expected_nll_posterior(samples, X, Y):
         z1 = nonlin(torch.matmul(X, w) + b)  # N D_H  <= first layer of activations
         q = samples['q'][r]
         c = samples['c'][r]
-        z2 = nonlin(torch.matmul(z1, q) + c)  # N D_H  <= second layer of activations
+        z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
         ydist = dist.Normal(z2, 1)
         nll += [-ydist.log_prob(Y).sum()]
 
