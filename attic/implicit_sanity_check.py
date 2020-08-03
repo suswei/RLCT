@@ -13,7 +13,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['logistic_synthetic'],
             'syntheticsamplesize': [1000, 5000, 10000, 20000],
-            'VItype': ['implicit'],
+            'posterior_method': ['implicit'],
             'epochs': [500],
             'batchsize': [10],
             'betasbegin': [0.05],
@@ -36,7 +36,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['tanh_synthetic'],
             'syntheticsamplesize': [1000, 5000, 10000, 20000],
-            'VItype': ['implicit'],
+            'posterior_method': ['implicit'],
             'epochs': [500],
             'batchsize': [10],
             'betasbegin': [0.1],
@@ -59,7 +59,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network reducedrank --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
             'syntheticsamplesize': [1000, 5000, 10000, 20000],
-            'VItype': ['implicit'],
+            'posterior_method': ['implicit'],
             'epochs': [500],
             'batchsize': [10],
             'betasbegin': [0.01],
@@ -96,7 +96,7 @@ def main(taskid):
         network = 'reducedrank'
 
     syntheticsamplesize = value[1]
-    VItype = value[2]
+    posterior_method = value[2]
     epochs = value[3]
     batchsize = value[4]
     betasbegin = value[5]
@@ -128,7 +128,7 @@ def main(taskid):
               "--taskid %s "
               "--dataset %s "
               "--syntheticsamplesize %s "
-              "--VItype %s "
+              "--posterior_method %s "
               "--network %s "
               "--epochs %s "
               "--batchsize %s "
@@ -145,7 +145,7 @@ def main(taskid):
               "--R %s "
               "--lr_primal %s "
               "--lr_dual %s " 
-              "--lr %s "%(taskid, dataset, syntheticsamplesize, VItype, network, epochs, batchsize, betasbegin, betasend, betalogscale, n_hidden_D, num_hidden_layers_D, n_hidden_G, num_hidden_layers_G, lambda_asymptotic, dpower, MCs, R, lr_primal, lr_dual, lr))
+              "--lr %s "%(taskid, dataset, syntheticsamplesize, posterior_method, network, epochs, batchsize, betasbegin, betasend, betalogscale, n_hidden_D, num_hidden_layers_D, n_hidden_G, num_hidden_layers_G, lambda_asymptotic, dpower, MCs, R, lr_primal, lr_dual, lr))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

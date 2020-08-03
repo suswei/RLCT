@@ -111,12 +111,12 @@ def get_dataset_by_id(args,kwargs):
 
         # what Watanabe calls three-layered neural network is actually one hidden layer
         # one input unit, H hidden units, and one output unit
-        m = Uniform(torch.tensor([0.0]), torch.tensor([1.0]))
+        m = Uniform(torch.tensor([-1.0]), torch.tensor([1.0]))
         X = m.sample(torch.Size([2*args.syntheticsamplesize]))
         # w = {(a_m,b_m)}_{m=1}^p, p(y|x,w) = N(0,f(x,w)) where f(x,w) = \sum_{m=1}^p a_m tanh(b_m x)
-        mean = torch.matmul(torch.tanh(torch.matmul(X, args.a_params)), args.b_params)
+        mean = 0.0
         y_rv = Normal(mean,1)
-        y = y_rv.sample()
+        y = y_rv.sample(torch.Size([2*args.syntheticsamplesize,1]))
 
         # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
         train_size = args.syntheticsamplesize
@@ -132,6 +132,7 @@ def get_dataset_by_id(args,kwargs):
 
         args.loss_criterion = nn.MSELoss(reduction='sum')
 
+        # TODO: this formula only holds if the model is a tanh network with H hidden units
         max_integer = int(math.sqrt(args.H))
         args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
 

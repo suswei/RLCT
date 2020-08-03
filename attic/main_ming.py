@@ -612,7 +612,7 @@ def approxinf_nll(train_loader,valid_loader,args, mc, beta_index, saveimgpath):
     elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
         true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
 
-    if args.VItype == 'implicit':
+    if args.posterior_method == 'implicit':
 
         G = train_implicitVI(train_loader,valid_loader,args, mc, beta_index, saveimgpath)
 
@@ -633,7 +633,7 @@ def approxinf_nll(train_loader,valid_loader,args, mc, beta_index, saveimgpath):
         approxinf_nlls = Parallel(n_jobs=num_cores, verbose=0)(
             delayed(approxinf_nll_implicit)(i, train_loader,G, args) for i in my_list)
 
-    elif args.VItype == 'explicit':
+    elif args.posterior_method == 'explicit':
 
         var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, True, saveimgpath)
 
@@ -670,7 +670,7 @@ def lambda_thm4(args, kwargs):
 
     for mc in range(0, args.MCs):
 
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.posterior_method, args.taskid, mc)
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -718,7 +718,7 @@ def lambda_thm4average(args, kwargs):
 
         for mc in range(0, args.MCs):
 
-            path = './{}_sanity_check/taskid{}/img/beta{}/mc{}'.format(args.VItype, args.taskid, beta, mc)
+            path = './{}_sanity_check/taskid{}/img/beta{}/mc{}'.format(args.posterior_method, args.taskid, beta, mc)
             if not os.path.exists(path):
                 os.makedirs(path)
 
@@ -731,7 +731,7 @@ def lambda_thm4average(args, kwargs):
 
         print('Finishing beta {}'.format(beta))
 
-    path = './{}_sanity_check/taskid{}/img/'.format(args.VItype, args.taskid)
+    path = './{}_sanity_check/taskid{}/img/'.format(args.posterior_method, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
 
@@ -747,7 +747,7 @@ def lambda_cor3(args, kwargs):
 
     for mc in range(0, args.MCs):
 
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.posterior_method, args.taskid, mc)
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -782,7 +782,7 @@ def varTI(args, kwargs):
     # for each MC, calculate (beta)^2 Var_w^\beta nL_n(w)
     for mc in range(0, args.MCs):
 
-        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.VItype, args.taskid, mc)
+        path = './{}_sanity_check/taskid{}/img/mc{}'.format(args.posterior_method, args.taskid, mc)
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -833,7 +833,7 @@ def main():
 
     # variational inference
 
-    parser.add_argument('--VItype', type=str, default='explicit',
+    parser.add_argument('--posterior_method', type=str, default='explicit',
                         help='type of variaitonal inference',
                         choices=['explicit','implicit'])
 
@@ -1082,7 +1082,7 @@ def main():
         wandb.log(results)
 
     # save locally
-    path = './{}_sanity_check/taskid{}/'.format(args.VItype, args.taskid)
+    path = './{}_sanity_check/taskid{}/'.format(args.posterior_method, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
 
@@ -1096,7 +1096,7 @@ def main():
 
     results_args = pd.concat([pd.DataFrame.from_dict(results), pd.concat([pd.DataFrame.from_dict(args_dict, orient='index').transpose()]*args.MCs, ignore_index=True)], axis=1)
 
-    results_args.to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.VItype, args.taskid), index=None, header=True)
+    results_args.to_csv('./{}_sanity_check/taskid{}/configuration_plus_results.csv'.format(args.posterior_method, args.taskid), index=None, header=True)
 
 
 if __name__ == "__main__":

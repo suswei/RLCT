@@ -30,7 +30,7 @@ class Args:
     syntheticsamplesize = 1000
 
     network = 'ffrelu'
-    VItype = 'implicit'
+    posterior_method = 'implicit'
     batchsize = 100
     epochs = 200
     epsilon_mc = 100

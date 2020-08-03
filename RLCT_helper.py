@@ -41,7 +41,7 @@ def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
                   "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
                   .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, ols_slope_estimate), fontsize=8)
     plt.xlabel("1/beta", fontsize=8)
-    plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.VItype), fontsize=8)
+    plt.ylabel("{} VI estimate of (E_data) E^beta_w [nL_n(w)]".format(args.posterior_method), fontsize=8)
     plt.legend()
     if saveimgname is not None:
         plt.savefig('{}.png'.format(saveimgname))
@@ -68,6 +68,8 @@ def retrieve_model(args):
         model = models.tanh(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
     if args.network == 'reducedrank':
         model = models.reducedrank(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
+    if args.network == 'pyro_tanh':
+        model = []
 
     # TODO: count parameters automatically
     if args.network == 'logistic':
@@ -75,7 +77,7 @@ def retrieve_model(args):
             w_dim = (args.input_dim + 1 * args.bias)
         elif args.dataset == 'mnist':
             w_dim = (args.input_dim + 1 * args.bias) * 9 / 2
-    elif args.network in ['tanh', 'reducedrank']:
+    elif args.network in ['tanh', 'pyro_tanh','reducedrank']:
         w_dim = (args.input_dim + args.output_dim) * args.H
     else:
         w_dim = count_parameters(model)

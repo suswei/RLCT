@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import os
 import argparse
 import random
-# from sklearn.manifold import TSNE
+from sklearn.manifold import TSNE
 import seaborn as sns
 import pandas as pd
 from random import randint
@@ -19,97 +19,9 @@ from dataset_factory import get_dataset_by_id
 from implicit_vi import *
 from explicit_vi import *
 from RLCT_helper import *
-
-# TODO: Add 3D support
-def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
-
-    wmin = -3
-    wmax = 3
-    wspace = 50
-    wrange = np.linspace(wmin, wmax, wspace)
-    w = np.repeat(wrange[:, None], wspace, axis=1)
-    w = np.concatenate([[w.flatten()], [w.T.flatten()]])
-
-    # prior
-    logprior = -(w ** 2).sum(axis=0) / 2
-
-    # true unnormalised posterior at inverse temp
-    logpost = torch.zeros(wspace * wspace)
-    for i in range(wspace * wspace):
-        current_w = torch.from_numpy(w[:,i]).float().unsqueeze(dim=0) # convert to torch tensor of shape [1,w_dim]
-        param_dict = weights_to_dict(args, current_w)[0]
-        logpost[i] = -args.betas[beta_index] * calculate_nllsum_paramdict(args, train_loader.dataset[:][1], train_loader.dataset[:][0], param_dict)
-    logpost = logpost.detach().numpy() + logprior
-
-    # kde sampled_weights
-    kernel = st.gaussian_kde([sampled_weights[:,0].detach().numpy(), sampled_weights[:,1].detach().numpy()])
-    f = np.reshape(kernel(w).T, [wspace,wspace])
-
-    fig = make_subplots(rows=1, cols=3, subplot_titles=('(unnormalised) prior',
-                                                        '(unnormalised) posterior',
-                                                        'kde of sampled weights'))
-    fig.add_trace(
-        go.Contour(
-            z=np.exp(logprior.reshape(wspace, wspace)),
-            x=wrange,  # horizontal axis
-            y=wrange
-        ),  # vertical axis
-        row=1, col=1
-    )
-    fig.add_trace(
-        go.Contour(
-            z=np.exp(logpost.reshape(wspace, wspace).T),
-            x=wrange,  # horizontal axis
-            y=wrange
-        ),  # vertical axis
-        row=1, col=2
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=sampled_weights[:, 0].detach().numpy(),
-            y=sampled_weights[:, 1].detach().numpy(),
-            mode='markers',
-            name='Sampled Data',
-            marker=dict(size=3,opacity=0.6)
-        ),
-        row=1, col=2
-    )
-    fig.add_trace(
-        go.Contour(
-            z=f.T,
-            x=wrange,  # horizontal axis
-            y=wrange),  # vertical axis
-            row=1, col=3
-    )
-    fig.update_layout(title_text='{}, {}, beta {}'.format(args.dataset, args.VItype, args.betas[beta_index]))
-    if args.notebook:
-        fig.show(renderer='notebook')
-    else:
-        fig.show()
-    if saveimgpath is not None:
-        fig.write_image('./{}/posteior_betaind{}'.format(saveimgpath, beta_index))
-
-
-def tsne_viz(sampled_weights,args,beta_index,saveimgpath):
-
-    if args.dataset == 'logistic_synthetic':
-        true_weight = torch.cat((args.w_0.reshape(1, args.input_dim), args.b.reshape(1, 1)), 1)
-    elif args.dataset in ['tanh_synthetic', 'reducedrank_synthetic']:
-        true_weight = torch.cat((args.a_params.reshape(1, (args.a_params.shape[0] * args.a_params.shape[1])), args.b_params.reshape(1, (args.b_params.shape[0] * args.b_params.shape[1]))), 1)
-
-    sampled_true_w = torch.cat((sampled_weights, true_weight), 0)
-    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
-    tsne_results = tsne.fit_transform(sampled_true_w.detach().numpy())
-    tsne_results = pd.DataFrame(tsne_results, columns=['dim%s' % (dim_index) for dim_index in [1, 2]])
-    tsne_results = pd.concat(
-        [tsne_results, pd.DataFrame.from_dict({'sampled_true': ['sampled'] * (tsne_results.shape[0] - 1) + ['true']})],
-        axis=1)
-    plt.figure(figsize=(16, 10))
-    ax = sns.scatterplot(x="dim1", y="dim2", hue="sampled_true", data=tsne_results)
-    plt.title('tsne view: sampled w: beta = {}'.format(args.betas[beta_index]), fontsize=20)
-    if saveimgpath is not None:
-        plt.savefig('./{}/tsne_betaind{}'.format(saveimgpath, beta_index))
-    plt.close()
+from mcmc_helper import *
+from models import *
+from visualization import *
 
 
 # Approximate inference estimate of E_w^\beta [nL_n(w)], Var_w^\beta [nL_n(w)] based on args.R sampled w_r^*
@@ -118,10 +30,21 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
     args.epsilon_dim = args.w_dim
     # args.epsilon_mc = args.batchsize  # TODO: is epsilon_mc sensitive?
 
-    if args.VItype == 'implicit':
+    if args.posterior_method == 'mcmc':
+
+        wholex = train_loader.dataset[:][0]
+        wholey = train_loader.dataset[:][1]
+
+        beta = args.betas[beta_index]
+
+        mcmc_beta = run_inference(pyro_tanh, args, wholex, wholey, beta=beta)
+
+        nll_mean, nll_var, nll_array = expected_nll_posterior_tanh(mcmc_beta.get_samples(), args, wholex, wholey)
+
+    elif args.posterior_method == 'implicit':
 
         G = train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
-        nllw_array = approxinf_nll_implicit(train_loader, G, args)
+        nll_array = approxinf_nll_implicit(train_loader, G, args)
 
         # visualize generator G
         with torch.no_grad():
@@ -136,11 +59,13 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
             if args.posterior_viz:
                 posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath)
 
+        nll_mean = sum(nll_array) / len(nll_array)
+        nll_var = sum((x - nll_mean) ** 2 for x in nll_array) / len(nll_array)
 
-    elif args.VItype == 'explicit':
+    elif args.posterior_method == 'explicit':
 
         var_model = train_explicitVI(train_loader, valid_loader, args, mc, beta_index, True, saveimgpath)
-        nllw_array = approxinf_nll_explicit(train_loader, var_model, args)
+        nll_array = approxinf_nll_explicit(train_loader, var_model, args)
 
         with torch.no_grad():
 
@@ -153,11 +78,10 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
             if args.posterior_viz:
                 posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath)
 
+        nll_mean = sum(nll_array) / len(nll_array)
+        nll_var = sum((x - nll_mean) ** 2 for x in nll_array) / len(nll_array)
 
-    nll_mean = sum(nllw_array)/len(nllw_array)
-    nll_var = sum((x-nll_mean)**2 for x in nllw_array )/len(nllw_array)
-
-    return nll_mean, nll_var, nllw_array
+    return nll_mean, nll_var, nll_array
 
 
 def lambda_asymptotics(args, kwargs):
@@ -171,7 +95,7 @@ def lambda_asymptotics(args, kwargs):
         # draw new training-testing split
         train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
         for beta_index in range(args.numbetas):
-            print('Starting mc {}/{}, beta {}/{}'.format(mc, args.MCs, beta_index, args.numbetas))
+            print('Starting mc {}/{}, beta {}/{}'.format(mc+1, args.MCs, beta_index, args.numbetas))
             nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, None)
             nlls_mean[mc, beta_index] = nll_mean
 
@@ -187,8 +111,8 @@ def lambda_asymptotics(args, kwargs):
                         'rlct ols thm4 mean': RLCT_estimates_ols.mean(),
                         'rlct ols thm4 std': RLCT_estimates_ols.std()}
 
-        with open('{}/results.pkl'.format(args.path), 'wb') as f:
-            pickle.dump(results_dict, f)
+        torch.save(results_dict, '{}/results.pt'.format(args.path))
+
 
     # theorem 4 average
     # nlls_mean.mean(axis=0) shape should be 1, numbetas
@@ -245,15 +169,19 @@ def setup_w0(args):
 
     elif args.dataset == 'tanh_synthetic':  # "Resolution of Singularities ... for Layered Neural Network" Aoyagi and Watanabe
 
+    # univariate input and univariate output
+    # mean function h(x,w) = \sum_{k=1}^H a_k tanh(b_k x + c_k)
+    # Suppose the true distribution q(y|x) has mean 0, i.e. H=0
+
         if args.dpower is None:
-            args.H = int(args.w_dim/2)
+            args.H = int(args.w_dim/3)
         else:
             args.H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
-        args.a_params = torch.zeros([1, args.H], dtype=torch.float32)
-        args.b_params = torch.zeros([args.H, 1], dtype=torch.float32)
 
-        if args.sanity_check:
+    if args.sanity_check:
             args.network = 'tanh'
+            if args.posterior_method == 'mcmc':
+                args.network = 'pyro_tanh'
 
     elif args.dataset == 'reducedrank_synthetic':
 
@@ -288,13 +216,13 @@ def setup_w0(args):
 
         args.input_dim = 1
         args.output_dim = 1
-        args.dataset = 'ffrelu_synthetic'
 
         # Currently hardcoded true hidden unit numbers
         args.true_mean = models.ffrelu(args.input_dim, args.output_dim, 4, 2)
 
         if args.sanity_check:
             args.network = 'ffrelu'
+
 
 def main():
 
@@ -341,12 +269,17 @@ def main():
     parser.add_argument('--batchsize', type=int, default=100, metavar='N',
                         help='input batch size for training (default: 100)')
 
+    # mcmc
+    parser.add_argument("--num-samples", nargs="?", default=2000, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
+    parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
+
 
     # variational inference
 
-    parser.add_argument('--VItype', type=str, default='implicit',
-                        help='type of variaitonal inference',
-                        choices=['explicit','implicit'])
+    parser.add_argument('--posterior_method', type=str, default='mcmc',
+                        help='method for posterior estimation',
+                        choices=['mcmc','explicit','implicit'])
 
     parser.add_argument('--prior', type=str, default='gaussian', metavar='P',
                         help='prior used on model parameters (default: gaussian)',
@@ -452,19 +385,22 @@ def main():
     args = parser.parse_args()
 
     # log results to directory
-    path = './{}_sanity_check/taskid{}'.format(args.VItype, args.taskid)
+    path = './{}_sanity_check/taskid{}'.format(args.posterior_method, args.taskid)
     if not os.path.exists(path):
         os.makedirs(path)
 
+    # cuda
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print("args.cuda is " + str(args.cuda))
+    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
     # Daniel
     # torch.manual_seed(args.seed)
     # if args.cuda:
     #    torch.cuda.manual_seed(args.seed)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    if args.posterior_method == 'mcmc':
+        print('Currently only supports tanh dataset')
 
     if args.dataset in ['logistic_synthetic','tanh_synthetic','reducedrank_synthetic']:
         if args.w_dim is None and args.dpower is None:
@@ -488,20 +424,14 @@ def main():
     args.path = path
     args_dict = vars(args)
     print(args_dict)
-    with open('{}/config.pkl'.format(path), 'wb') as f:
-        pickle.dump(args_dict, f)
+    torch.save(args_dict, '{}/config.pt'.format(path))
 
     print('Starting taskid {}'.format(args.taskid))
     results_dict = lambda_asymptotics(args, kwargs)
     print(results_dict)
     print('Finished taskid {}'.format(args.taskid))
 
-    with open('{}/results.pkl'.format(path), 'wb') as f:
-        pickle.dump(results_dict, f)
-
-
-    # pickle.load(open('{}/config.pkl'.format(path),"rb"))
-    # pickle.load(open('{}/results.pkl'.format(path),"rb"))
+    torch.save(results_dict, '{}/results.pt'.format(path))
 
 
 if __name__ == "__main__":
