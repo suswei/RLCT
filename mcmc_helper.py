@@ -1,4 +1,3 @@
-
 import torch
 import argparse
 import time
@@ -21,14 +20,15 @@ def run_inference(model, args, X, Y, beta):
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc
 
-
+# corresponds to pyro_tanh in models.py
 def expected_nll_posterior_tanh(samples, args, X, Y):
 
     nll = []
     for r in range(args.num_samples):
         w = samples['w'][r]
-        b = samples['b'][r]
-        z1 = torch.tanh(torch.matmul(X, w) + b)  # N D_H  <= first layer of activations
+        # b = samples['b'][r]
+        # z1 = torch.tanh(torch.matmul(X, w) + b)  # N D_H  <= first layer of activations
+        z1 = torch.tanh(torch.matmul(X, w))  # N D_H  <= first layer of activations
         q = samples['q'][r]
         # c = samples['c'][r]
         # z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
