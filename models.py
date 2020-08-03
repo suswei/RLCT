@@ -1,6 +1,9 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+import pyro
+import pyro.distributions as dist
+import numpy as np
 
 class cnn(nn.Module):
     def __init__(self,output_dim):
@@ -47,7 +50,7 @@ class logistic(nn.Module):
 class tanh(nn.Module):
     def __init__(self, input_dim, output_dim, H):
         super(tanh, self).__init__()
-        self.fc1 = nn.Linear(input_dim, H, bias=False)
+        self.fc1 = nn.Linear(input_dim, H, bias=True)
         self.fc2 = nn.Linear(H, output_dim, bias=False)
 
     def forward(self, x):
@@ -65,3 +68,22 @@ class reducedrank(nn.Module):
         x = self.fc1(x)
         x = self.fc2(x)
         return x
+
+# feedforward relu network with D_H hidden units, at "temperature" 1/beta
+def pyro_tanh(X, Y, D_H, beta):
+
+    D_X, D_Y = X.shape[1], Y.shape[1]
+
+    # sample first layer (we put unit normal priors on all weights)
+    w = pyro.sample("w", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+    b = pyro.sample("b", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
+    z1 = torch.tanh(torch.matmul(X, w) + b)   # N D_H  <= first layer of activations
+
+    # sample second layer
+    q = pyro.sample("q", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
+    z2 = torch.matmul(z1, q)
+    # c = pyro.sample("c", dist.Normal(torch.zeros((1, 1)), torch.ones((1, 1))))  # D_H D_H
+    # z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
+
+    # observe data
+    pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)), obs=Y)

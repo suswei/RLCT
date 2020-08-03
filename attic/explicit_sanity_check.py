@@ -12,7 +12,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [1000],
-            'VItype': ['explicit'],
+            'posterior_method': ['explicit'],
             'epochs': [500],
             'batchsize': [10, 50],
             'beta_auto': ['beta_auto_liberal', 'beta_auto_conservative'],
@@ -28,7 +28,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'],
             'syntheticsamplesize': [5000],
-            'VItype': ['explicit'],
+            'posterior_method': ['explicit'],
             'epochs': [500],
             'batchsize': [100, 150],
             'beta_auto': ['beta_auto_liberal', 'beta_auto_conservative'],
@@ -44,7 +44,7 @@ def main(taskid):
         hyperparameter_config = {
             'dataset': ['logistic_synthetic', 'tanh_synthetic', 'reducedrank_synthetic'], #--dataset reducedrank_synthetic --syntheticsamplesize 10000 --batchsize 128 --network reducedrank --betasend 0.5 --epochs 50 --MCs 2 --R 5 --num_hidden_layers_G 4 --num_hidden_layers_D 4 --lr_primal 0.01 --lr_dual 0.005
             'syntheticsamplesize': [10000],
-            'VItype': ['explicit'],
+            'posterior_method': ['explicit'],
             'epochs': [500],
             'batchsize': [150, 250],
             'beta_auto': ['beta_auto_liberal', 'beta_auto_conservative'],
@@ -75,7 +75,7 @@ def main(taskid):
         network = 'reducedrank'
 
     syntheticsamplesize = value[1]
-    VItype = value[2]
+    posterior_method = value[2]
     epochs = value[3]
     batchsize = value[4]
     beta_auto = value[5]
@@ -95,12 +95,12 @@ def main(taskid):
               "--epochs %s "
               "--batchsize %s "
               "--lambda_asymptotic %s "             
-              "--VItype %s "
+              "--posterior_method %s "
               "--lr %s "
               "--%s "
               "--betalogscale %s "
               "--MCs %s "
-              "--R %s "%(taskid, dataset, syntheticsamplesize, dpower, network, epochs, batchsize, lambda_asymptotic, VItype, lr, beta_auto, betalogscale, MCs, R))
+              "--R %s "%(taskid, dataset, syntheticsamplesize, dpower, network, epochs, batchsize, lambda_asymptotic, posterior_method, lr, beta_auto, betalogscale, MCs, R))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

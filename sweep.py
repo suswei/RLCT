@@ -15,7 +15,7 @@ import itertools
 #     temp = hyperparameter_experiments[taskid]
 #
 #     os.system("python3 main.py --sanity_check --dpower 0.6 "
-#               "--VItype implicit --epochs 200 --MCs 1 "
+#               "--posterior_method implicit --epochs 200 --MCs 1 "
 #               "--betasbegin 0.1 --betasend 0.5 --betanscale --numbetas 10 "
 #               "--taskid %s --dataset %s --syntheticsamplesize %s "
 #               "--n_hidden_G 256 --num_hidden_layers_G 2 "
@@ -28,7 +28,7 @@ def main(taskid):
     hyperparameter_config = {
         'symmetry_factor': list(range(3, 11)),# 3 to 10
         'num_hidden': [10, 15, 20],
-        'num_data': [100,250,500],
+        'syntheticsamplesize': [100,250,500],
         'mc': list(range(10))
     }
     keys, values = zip(*hyperparameter_config.items())
@@ -36,7 +36,7 @@ def main(taskid):
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 pyro_example.py --symmetry-factor %s --num-hidden %s --num-data %s --mc %s"
-              %(temp['symmetry_factor'],temp['num_hidden'],temp['num_data'],temp['mc']))
+              %(temp['symmetry_factor'],temp['num_hidden'],temp['syntheticsamplesize'],temp['mc']))
 
 
 if __name__ == "__main__":
