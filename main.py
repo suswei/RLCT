@@ -37,9 +37,13 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
 
         beta = args.betas[beta_index]
 
-        mcmc_beta = run_inference(pyro_tanh, args, wholex, wholey, beta=beta)
+        start = time.time()
+        kernel = NUTS(conditioned_pyro_tanh, adapt_step_size=True)
+        mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
+        mcmc.run(pyro_tanh, wholex, wholey, args.H, beta)
+        print('\nMCMC elapsed time:', time.time() - start)
 
-        nll_mean, nll_var, nll_array = expected_nll_posterior_tanh(mcmc_beta.get_samples(), args, wholex, wholey)
+        nll_mean, nll_var, nll_array = expected_nll_posterior_tanh(mcmc.get_samples(), args, wholex, wholey)
 
     elif args.posterior_method == 'implicit':
 
@@ -95,7 +99,7 @@ def lambda_asymptotics(args, kwargs):
         # draw new training-testing split
         train_loader, valid_loader, test_loader = get_dataset_by_id(args, kwargs)
         for beta_index in range(args.numbetas):
-            print('Starting mc {}/{}, beta {}/{}'.format(mc+1, args.MCs, beta_index, args.numbetas))
+            print('Starting mc {}/{}, beta {}/{}'.format(mc+1, args.MCs, beta_index+1, args.numbetas))
             nll_mean, _, _ = approxinf_nll(train_loader, valid_loader, args, mc, beta_index, None)
             nlls_mean[mc, beta_index] = nll_mean
 
@@ -272,8 +276,6 @@ def main():
     # mcmc
     parser.add_argument("--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
-    parser.add_argument("--symmetry-factor", nargs='?', default=3, type=int)
-
 
     # variational inference
 

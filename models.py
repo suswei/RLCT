@@ -1,9 +1,17 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+
 import pyro
 import pyro.distributions as dist
+import pyro.poutine as poutine
+
+from torch.distributions import transforms
+
 import numpy as np
+from torch.distributions.transformed_distribution import TransformedDistribution
+from torch.distributions.transforms import PowerTransform
+from torch.distributions import Normal
 
 class cnn(nn.Module):
     def __init__(self,output_dim):
@@ -71,21 +79,22 @@ class reducedrank(nn.Module):
 
 
 # feedforward relu network with D_H hidden units, at "temperature" 1/beta
-def pyro_tanh(X, Y, D_H, beta):
+def pyro_tanh(X, D_H, beta):
 
-    D_X, D_Y = X.shape[1], Y.shape[1]
+    D_X = X.shape[1]
 
     # sample first layer (we put unit normal priors on all weights)
     w = pyro.sample("w", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
-    # b = pyro.sample("b", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
     z1 = torch.tanh(torch.matmul(X, w))   # N D_H  <= first layer of activations
-    # z1 = torch.tanh(torch.matmul(X, w) + b)   # N D_H  <= first layer of activations
 
     # sample second layer
     q = pyro.sample("q", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
     z2 = torch.matmul(z1, q)
-    # c = pyro.sample("c", dist.Normal(torch.zeros((1, 1)), torch.ones((1, 1))))  # D_H D_H
-    # z2 = torch.matmul(z1, q) + c  # N D_H  <= second layer of activations
 
-    # observe data
-    pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)), obs=Y)
+    # TODO: transform not working
+    # return pyro.sample("Y", dist.TransformedDistribution(dist.Normal(z2, 1.0), transforms.PowerTransform(beta)))
+    return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
+
+
+def conditioned_pyro_tanh(pyro_tanh, X,Y,D_H,beta):
+    return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta)
