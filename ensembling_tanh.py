@@ -92,6 +92,7 @@ class tanh(nn.Module):
         x = self.fc2(x)
         return x
 
+args.w_dim = (args.input_dim + args.output_dim)*args.H
 
 # for the very simple true distribution above, we know the theoretical value of the RLCT for this tanh model
 
@@ -121,8 +122,8 @@ def custom_loss(model, target, output, beta):
         # wd += ((p - anchor) ** 2).sum()
         wd += (p ** 2).sum()
 
-    wd_factor = torch.tensor(((args.y_std/args.prior_std)**2)/beta)
-    return args.loss_criterion(target, output)/args.batchsize + wd_factor*wd
+    # wd_factor = torch.tensor(((args.y_std/args.prior_std)**2)/beta)
+    return beta*args.loss_criterion(target, output)/(2*(args.y_std**2)*args.batchsize) + wd/(2*(args.prior_std**2)*args.n)
 
 
 # %%
@@ -135,6 +136,7 @@ def train(beta):
     # wd_factor = ((args.y_std/args.prior_std)**2)/beta
 
     model = tanh(args.input_dim, args.output_dim, args.H)
+    lr = args.batchsize / (beta * args.n)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
     wholex = train_loader.dataset[:][0]

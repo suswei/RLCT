@@ -18,6 +18,7 @@ from torch.autograd import Variable
 
 from statsmodels.regression.linear_model import OLS
 from statsmodels.tools.tools import add_constant
+from sklearn.linear_model import ElasticNet
 
 from matplotlib import pyplot as plt
 
@@ -28,7 +29,7 @@ class args():
 
     def __init__(self):
         self.n = 500
-        self.batchsize = 500
+        self.batchsize = 100
         self.lr = 0.001
         self.epochs = 500
 
@@ -37,11 +38,11 @@ class args():
         self.y_std = 1.0
         self.prior_std = 1.0
 
-        self.betasbegin = 0.9
-        self.betasend = 1.1
-        self.numbetas = 10
+        self.betasbegin = 0.5
+        self.betasend = 1.5
+        self.numbetas = 20
 
-        self.R = 25
+        self.R = 100
 
 
 args = args()
@@ -92,6 +93,7 @@ class reducedrank(nn.Module):
         x = self.fc2(x)
         return x
 
+args.w_dim = (args.input_dim + args.output_dim)*args.H
 
 # %%
 
@@ -115,8 +117,8 @@ def custom_loss(model, target, output, beta):
         # wd += ((p - anchor) ** 2).sum()
         wd += (p ** 2).sum()
 
-    wd_factor = torch.tensor(((args.y_std/args.prior_std)**2)/beta)
-    return args.loss_criterion(target, output)/args.batchsize + wd_factor*wd
+    # wd_factor = torch.tensor(((args.y_std/args.prior_std)**2))
+    return beta*args.loss_criterion(target, output)/(2*(args.y_std**2)*args.batchsize) + wd/(2*(args.prior_std**2)*args.n)
 
 
 # %%
@@ -129,7 +131,9 @@ def train(beta):
 
     model = reducedrank(args.input_dim, args.output_dim, args.H)
     # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=wd_factor)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    lr = args.batchsize/(beta*args.n)
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+
     wholex = train_loader.dataset[:][0]
     wholey = train_loader.dataset[:][1]
 
@@ -180,6 +184,21 @@ RLCT_estimate = ols_model.params[1]
 print('RLCT estimate: {}'.format(RLCT_estimate))
 print('true RLCT: {}'.format(args.trueRLCT))
 
+# robust ls fit
+regr = ElasticNet(random_state=0, fit_intercept=True, alpha=args.elasticnet_alpha)
+regr.fit((1 / args.betas).reshape(args.numbetas, 1), np.mean(nll, 1))
+robust_intercept_estimate = regr.intercept_
+# slope_estimate = min(regr.coef_[0],args.w_dim/2)
+robust_slope_estimate = regr.coef_[0]
+
 plt.scatter(1 / args.betas, np.mean(nll, 1), label='nll beta')
+plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-',
+         label='robust ols')
 plt.plot(1 / args.betas, ols_intercept_estimate + RLCT_estimate * 1 / args.betas, 'b-', label='ols')
+plt.title("d_on_2 = {}, true lambda = {:.1f} "
+                  "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
+                  .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, RLCT_estimate), fontsize=8)
+plt.xlabel("1/beta", fontsize=8)
+plt.ylabel("{} estimate of (E_data) E^beta_w [nL_n(w)]".format(args.posterior_method), fontsize=8)
+plt.legend()
 plt.show()
