@@ -2,7 +2,7 @@
 
 # The name of the job:
 #SBATCH --job-name="rlct"
-#SBATCH -p cloud,physical
+#SBATCH -p physical
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
@@ -12,7 +12,7 @@
 #SBATCH --time=0-48:0:00
 
 # Batch arrays
-#SBATCH --array=0-9
+#SBATCH --array=0-79
 
 # Send yourself an email when the job:
 # aborts abnormally (fails)
@@ -34,4 +34,4 @@ fi
 # Run the job from the directory where it was launched (default)
 
 # The job command(s):
-python3 sweep.py ${SLURM_ARRAY_TASK_ID}
+python3 ensembling_sweep.py ${SLURM_ARRAY_TASK_ID}

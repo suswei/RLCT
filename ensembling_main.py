@@ -1,25 +1,17 @@
 import argparse
 import numpy as np
-import math
-import copy
 import os
+from numpy.linalg import inv
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, SubsetRandomSampler
-from torch import Tensor
-import torch.nn.functional as F
+from torch.utils.data import TensorDataset
 import torch.optim as optim
-from torch.distributions.uniform import Uniform
-from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
-from torch.autograd import Variable
-
-from statsmodels.regression.linear_model import OLS
-from statsmodels.tools.tools import add_constant
-from sklearn.linear_model import ElasticNet
 
 from matplotlib import pyplot as plt
+
+#TODO: currently only supports realizable reduced rank regression, need to add realizable tanh
 
 def main():
 
@@ -178,18 +170,26 @@ def main():
 
     # average nll array over r
 
-    ols_model = OLS(np.mean(nll, 1), add_constant(1 / args.betas)).fit()
-    ols_intercept_estimate = ols_model.params[0]
-    RLCT_estimate = ols_model.params[1]
+    # ols_model = OLS(np.mean(nll, 1), add_constant(1 / args.betas)).fit()
+    # ols_intercept_estimate = ols_model.params[0]
+    # RLCT_estimate = ols_model.params[1]
+
+    design_x = np.vstack((np.ones(args.numbetas), 1/args.betas)).T
+    design_y = np.mean(nll,1)
+    design_y = design_y[:, np.newaxis]
+    fit = inv(design_x.T.dot(design_x)).dot(design_x.T).dot(design_y)
+    ols_intercept_estimate = fit[0][0]
+    RLCT_estimate =fit[1][0]
+
     print('RLCT estimate: {}'.format(RLCT_estimate))
     print('true RLCT: {}'.format(args.trueRLCT))
 
     # robust ls fit
-    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=0.5)
-    regr.fit((1 / args.betas).reshape(args.numbetas, 1), np.mean(nll, 1))
-    robust_intercept_estimate = regr.intercept_
-    # slope_estimate = min(regr.coef_[0],args.w_dim/2)
-    robust_slope_estimate = regr.coef_[0]
+    # regr = ElasticNet(random_state=0, fit_intercept=True, alpha=0.5)
+    # regr.fit((1 / args.betas).reshape(args.numbetas, 1), np.mean(nll, 1))
+    # robust_intercept_estimate = regr.intercept_
+    # # slope_estimate = min(regr.coef_[0],args.w_dim/2)
+    # robust_slope_estimate = regr.coef_[0]
 
     path = './taskid{}'.format(args.taskid)
     if not os.path.exists(path):
@@ -200,17 +200,18 @@ def main():
     torch.save(args_dict, '{}/mc{}_config.pt'.format(path, args.MC))
 
     plt.scatter(1 / args.betas, np.mean(nll, 1), label='nll beta')
-    plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-',
-             label='robust ols')
+    # plt.plot(1 / args.betas, robust_intercept_estimate + robust_slope_estimate * 1 / args.betas, 'g-',
+    #          label='robust ols')
     plt.plot(1 / args.betas, ols_intercept_estimate + RLCT_estimate * 1 / args.betas, 'b-', label='ols')
     plt.title("d_on_2 = {}, true lambda = {:.1f} "
-              "\n hat lambda robust = {:.1f}, hat lambda ols = {:.1f}"
-              .format(args.w_dim / 2, args.trueRLCT, robust_slope_estimate, RLCT_estimate), fontsize=8)
+              "\n hat lambda ols = {:.1f}"
+              .format(args.w_dim / 2, args.trueRLCT, RLCT_estimate), fontsize=8)
     plt.xlabel("1/beta", fontsize=8)
     plt.ylabel("ensemble estimate of E^beta_w [nL_n(w)]", fontsize=8)
     plt.savefig('{}/mc{}.png'.format(path, args.MC))
     plt.legend()
     plt.show()
+
 
 if __name__ == "__main__":
     main()
