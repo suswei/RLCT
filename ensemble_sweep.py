@@ -2,15 +2,17 @@ import sys
 import os
 import itertools
 
+
 def main(taskid):
 
-    MCs = 10
+    MCs = 5
 
     taskid = int(taskid[0])
     hyperparameter_config = {
+        'dataset': ['rr','tanh'],
         'n': [500, 1000],
-        'batchsize': [50,100],
-        'output-dim': [5, 10],
+        'batchsize': [100, 500],
+        'H': [5, 10],
         'MC': list(range(MCs))
     }
     keys, values = zip(*hyperparameter_config.items())
@@ -24,11 +26,13 @@ def main(taskid):
               # "--numbetas 2 "
               # "--R 5 "
               "--taskid %s "
+              "--dataset %s "
               "--n %s "
               "--batchsize %s "
-              "--output-dim %s "
+              "--H %s "
               "--MC %s "
-              %(taskid, temp['n'], temp['batchsize'], temp['output-dim'], temp['MC']))
+              %(taskid, temp['dataset'], temp['n'], temp['batchsize'], temp['H'], temp['MC']))
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
