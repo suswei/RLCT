@@ -12,7 +12,7 @@
 #SBATCH --time=0-48:0:00
 
 # Batch arrays
-#SBATCH --array=0-79
+#SBATCH --array=0-39
 
 # Send yourself an email when the job:
 # aborts abnormally (fails)
@@ -34,4 +34,4 @@ fi
 # Run the job from the directory where it was launched (default)
 
 # The job command(s):
-python3 ensembling_sweep.py ${SLURM_ARRAY_TASK_ID}
+python3 ensemble_sweep.py ${SLURM_ARRAY_TASK_ID}

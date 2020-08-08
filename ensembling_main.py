@@ -29,14 +29,14 @@ def main():
     parser.add_argument('--y-std', type=float, default=1.0)
     parser.add_argument('--prior-std', type=float, default=1.0)
 
-    parser.add_argument('--betasbegin', type=float, default=0.9,
+    parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=1.1,
+    parser.add_argument('--betasend', type=float, default=1.5,
                         help='where beta range should end')
-    parser.add_argument('--numbetas', type=int, default=10,
+    parser.add_argument('--numbetas', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
-    parser.add_argument('--R', type=int, default=25)
+    parser.add_argument('--R', type=int, default=50)
 
     parser.add_argument('--MC', type=int, default=1)
     parser.add_argument('--taskid',type=int, default=1)
@@ -202,7 +202,7 @@ def main():
                     output = model(wholex)
                     eval_loss = custom_loss(model, wholey, output, beta)
                     # eval_loss = args.loss_criterion(wholey, output)
-                    print('Epoch {}: average loss on training {}'.format(epoch, eval_loss / args.n))
+                    print('Epoch {}: total loss on training {}'.format(epoch, eval_loss))
 
         final_output = model(wholex)
         return args.loss_criterion(wholey, final_output).detach() / (2 * (args.y_std ** 2))
