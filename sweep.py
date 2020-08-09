@@ -6,7 +6,7 @@ def main(taskid):
 
     taskid = int(taskid[0])
     hyperparameter_config = {
-        'syntheticsamplesize': [100, 200],
+        'syntheticsamplesize': [100, 500, 1000],
         'MCs': 5*[1]
     }
     keys, values = zip(*hyperparameter_config.items())
@@ -15,15 +15,11 @@ def main(taskid):
 
     os.system("python3 main.py "
               "--taskid %s "
-              "--w_dim 900 "
+              "--dataset ffrelu_synthetic "
               "--syntheticsamplesize %s "
-              "--dataset tanh_synthetic "
-              "--sanity_check "
-              "--betalogscale "
-              "--numbetas 5 "
               "--MCs %s "
-              "--num-warmup 10000 "
-              "--num-samples 10000"
+              "--posterior_method mcmc "
+              "--network pyro_ffrelu"
               %(taskid, temp['syntheticsamplesize'], temp['MCs']))
 
 # def main(taskid):

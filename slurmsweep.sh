@@ -2,17 +2,17 @@
 
 # The name of the job:
 #SBATCH --job-name="rlct"
-#SBATCH -p cloud,physical
+#SBATCH -p physical
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --cpus-per-task=1
 
 # The maximum running time of the job in days-hours:mins:sec
-#SBATCH --time=0-48:0:00
+#SBATCH --time=0-72:0:00
 
 # Batch arrays
-#SBATCH --array=0-9
+#SBATCH --array=0-14
 
 # Send yourself an email when the job:
 # aborts abnormally (fails)

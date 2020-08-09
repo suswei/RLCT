@@ -98,3 +98,30 @@ def pyro_tanh(X, D_H, beta):
 
 def conditioned_pyro_tanh(pyro_tanh, X,Y,D_H,beta):
     return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta)
+
+
+def pyro_ffrelu(X, Y, D_H, beta):
+
+    D_X, D_Y = X.shape[1], Y.shape[1]
+
+    w1 = pyro.sample("w1", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+    b1 = pyro.sample("b1", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
+    z1 = torch.relu(torch.matmul(X, w1)+b1)   # N D_H  <= first layer of activations
+
+    w2 = pyro.sample("w2", dist.Normal(torch.zeros((D_H, D_H)), torch.ones((D_H, D_H))))  # D_X D_H
+    b2 = pyro.sample("b2", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
+    z2 = torch.relu(torch.matmul(z1, w2)+b2)   # N D_H  <= first layer of activations
+
+    w3 = pyro.sample("w3", dist.Normal(torch.zeros((D_H, D_H)), torch.ones((D_H, D_H))))  # D_X D_H
+    b3 = pyro.sample("b3", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
+    z3 = torch.relu(torch.matmul(z2, w3)+b3)   # N D_H  <= first layer of activations
+
+    w4 = pyro.sample("w4", dist.Normal(torch.zeros((D_H, D_H)), torch.ones((D_H, D_H))))  # D_X D_H
+    b4 = pyro.sample("b4", dist.Normal(torch.zeros((1, D_H)), torch.ones((1, D_H))))  # D_X D_H
+    z4 = torch.relu(torch.matmul(z3, w4)+b4)   # N D_H  <= first layer of activations
+
+    w5 = pyro.sample("w5", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_X D_H
+    b5 = pyro.sample("b5", dist.Normal(torch.zeros((1, D_Y)), torch.ones((1, D_Y))))  # D_X D_H
+    z5 = torch.matmul(z4, w5)+b5  # N D_H  <= first layer of activations
+
+    pyro.sample("Y", dist.Normal(z5, 1 / np.sqrt(beta)), obs=Y)

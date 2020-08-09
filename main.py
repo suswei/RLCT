@@ -37,13 +37,14 @@ def approxinf_nll(train_loader, valid_loader, args, mc, beta_index, saveimgpath)
 
         beta = args.betas[beta_index]
 
+        # TODO: this should be flexible enough for pyro_blah
         start = time.time()
-        kernel = NUTS(conditioned_pyro_tanh, adapt_step_size=True)
+        kernel = NUTS(pyro_ffrelu, adapt_step_size=True)
         mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
-        mcmc.run(pyro_tanh, wholex, wholey, args.H, beta)
+        mcmc.run(wholex, wholey, args.H, beta)
         print('\nMCMC elapsed time:', time.time() - start)
 
-        nll_mean, nll_var, nll_array = expected_nll_posterior_tanh(mcmc.get_samples(), args, wholex, wholey)
+        nll_mean, nll_var, nll_array = expected_nll_posterior_relu(mcmc.get_samples(), args, wholex, wholey)
 
     elif args.posterior_method == 'implicit':
 
@@ -182,7 +183,7 @@ def setup_w0(args):
         else:
             args.H = int(np.power(args.syntheticsamplesize, args.dpower)*0.5) #number of hidden unit
 
-    if args.sanity_check:
+        if args.sanity_check:
             args.network = 'tanh'
             if args.posterior_method == 'mcmc':
                 args.network = 'pyro_tanh'
@@ -218,14 +219,16 @@ def setup_w0(args):
 
     elif args.dataset == 'ffrelu_synthetic':
 
-        args.input_dim = 1
-        args.output_dim = 1
-
+        args.input_dim = 10
+        args.output_dim = 10
+        args.H = 10
         # Currently hardcoded true hidden unit numbers
         args.true_mean = models.ffrelu(args.input_dim, args.output_dim, 4, 2)
 
         if args.sanity_check:
             args.network = 'ffrelu'
+            if args.posterior_method == 'mcmc':
+                args.network = 'pyro_ffrelu'
 
 
 def main():
@@ -260,7 +263,7 @@ def main():
 
     parser.add_argument('--network', type=str, default='logistic',
                         help='name of network in models.py (default: logistic)',
-                        choices=['ffrelu','cnn','logistic', 'tanh', 'reducedrank'])
+                        choices=['ffrelu','cnn','logistic', 'tanh', 'reducedrank','pyro_tanh','pyro_ffrelu'])
 
     parser.add_argument('--H1',type=int, help = 'number of hidden units in layer 1 of ffrelu')
     parser.add_argument('--H2',type=int, help = 'number of hidden units in layer 2 of ffrelu')
@@ -274,8 +277,8 @@ def main():
                         help='input batch size for training (default: 100)')
 
     # mcmc
-    parser.add_argument("--num-samples", nargs="?", default=2000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-samples", nargs="?", default=20000, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=10000, type=int)
 
     # variational inference
 
@@ -335,10 +338,10 @@ def main():
     parser.add_argument('--beta_auto_oracle', action="store_true", default=False,
                         help='flag to turn ON calculate optimal (oracle) range of betas based on sample size')
 
-    parser.add_argument('--betasbegin', type=float, default=0.5,
+    parser.add_argument('--betasbegin', type=float, default=0.01,
                         help='where beta range should begin')
 
-    parser.add_argument('--betasend', type=float, default=1.5,
+    parser.add_argument('--betasend', type=float, default=2.0,
                         help='where beta range should end')
 
     parser.add_argument('--betalogscale', action="store_true", default=False,
@@ -402,7 +405,7 @@ def main():
     #    torch.cuda.manual_seed(args.seed)
 
     if args.posterior_method == 'mcmc':
-        print('Currently only supports tanh dataset')
+        print('Currently only supports tanh and ffrelu dataset')
 
     if args.dataset in ['logistic_synthetic','tanh_synthetic','reducedrank_synthetic']:
         if args.w_dim is None and args.dpower is None:

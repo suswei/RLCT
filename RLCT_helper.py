@@ -70,6 +70,8 @@ def retrieve_model(args):
         model = models.reducedrank(input_dim=args.input_dim, output_dim=args.output_dim, H=args.H)
     if args.network == 'pyro_tanh':
         model = []
+    if args.network == 'pyro_ffrelu':
+        model = []
 
     # TODO: count parameters automatically
     if args.network == 'logistic':
@@ -79,6 +81,8 @@ def retrieve_model(args):
             w_dim = (args.input_dim + 1 * args.bias) * 9 / 2
     elif args.network in ['tanh', 'pyro_tanh','reducedrank']:
         w_dim = (args.input_dim + args.output_dim) * args.H
+    elif args.network == 'pyro_ffrelu':
+        w_dim = 5*(args.H * args.H + args.H)
     else:
         w_dim = count_parameters(model)
 
