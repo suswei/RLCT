@@ -11,9 +11,13 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
 from torch.distributions.uniform import Uniform
 
+from scipy.stats import levy_stable
+
 from matplotlib import pyplot as plt
 
-# good result for lr
+
+### good result for lr, seeing iissues at H ~ 160, more sensitivity to temperature here
+
 # self.n = 1000
 # self.batchsize = 50
 # self.epochs = 1000
@@ -24,8 +28,11 @@ from matplotlib import pyplot as plt
 # self.betasbegin = 0.5
 # self.betasend = 2.0
 # self.numbetas = 20
+
 # self.R = 50
-# self.stepsizedecay = 0.3
+# self.stepsizedecay = 1.0
+
+###
 
 # self.dataset = 'tanh'
 # self.n = 1000
@@ -48,18 +55,21 @@ class args():
     def __init__(self):
         self.dataset = 'tanh'
         self.n = 1000
-        self.batchsize = 100
-        self.epochs = 1000
+        self.batchsize = 50
+        self.epochs = 5000
 
-        self.H = 256
-        self.eps = 1.0
+        self.H = 4
+        # self.eps = 0.1
+        self.stepsizedecay = 1.0
 
-        self.betasbegin = 5.0
-        self.betasend = 10.0
+        self.betasbegin = 2.0
+        self.betasend = 3.0
         self.numbetas = 20
 
-        self.stepsizedecay = 1.0
         self.R = 50
+
+        self.method = 'simsekli'
+
 
 args = args()
 
@@ -123,6 +133,8 @@ if args.dataset == 'lr':
     criterion_mean = nn.BCELoss(reduction='mean')
     baseline_nll = criterion_sum(torch.sigmoid(affine), y)
 
+    args.input_dim = args.H
+    args.output_dim = 1
     args.w_dim = args.H+1
     args.trueRLCT = args.w_dim/2
 
@@ -178,8 +190,8 @@ train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchs
 
 
 nll = np.empty((args.numbetas, args.R))
-# low temp to high temp, should see increase in nll
-inverse_temp = np.flip(np.linspace(args.betasbegin, args.betasend, args.numbetas))
+# evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
+inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas))
 
 
 for beta_index in range(0, args.numbetas):
@@ -195,8 +207,11 @@ for beta_index in range(0, args.numbetas):
 
         print('Training {}/{} ensemble at {}/{} temp'.format(r + 1, args.R, beta_index + 1, args.numbetas))
 
-        stepsize = args.eps * 2 * args.batchsize/(beta*args.n)
-
+        # according to Mandt, this is the ideal constant stepsize for approximating the posterior, assumed to be Gaussian
+        if args.method == 'mandt':
+            stepsize = args.eps * 2 * args.batchsize/(beta*args.n)
+        elif args.method == 'simsekli':
+            stepsize = 0.0001
         # Training
         for epoch in range(1, args.epochs):
 
@@ -205,16 +220,23 @@ for beta_index in range(0, args.numbetas):
             loss.backward()
 
             for p in model.parameters():
-                nrv = Normal(0.0, 1.0/np.sqrt(args.batchsize))
-                blah = nrv.sample(p.shape)
-                p.data -= stepsize*(p.grad+blah)
-
+                if args.method == 'mandt':
+                    nrv = Normal(0.0, 1.0/np.sqrt(args.batchsize))
+                    blah = nrv.sample(p.shape)
+                    p.data -= stepsize*(p.grad+blah)
+                elif args.method == 'simsekli':
+                    alpha = 1.0
+                    sigma = 0.1
+                    location = 0.0
+                    # TODO: wait a minute, this doesn't depend on temperature...
+                    symmetric_alpha_stable_draw = levy_stable.rvs(alpha,0,1.0,location,size=(p.shape[0],p.shape[1]))
+                    p.data -= stepsize*p.grad + stepsize * sigma * symmetric_alpha_stable_draw
             # PyTorch stuffs
             model.zero_grad()
 
             if (epoch+1) % 1000 == 0:
                 print('Epoch {}: training nll {}, baseline nll {}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
-                stepsize = args.stepsize_decay*stepsize
+                stepsize = args.stepsizedecay*stepsize
 
         # Record nll
         nll[beta_index, r] = criterion_sum(model(X), y)
