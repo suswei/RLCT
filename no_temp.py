@@ -21,19 +21,19 @@ def main():
     parser = argparse.ArgumentParser(description='RLCT Variational Inference')
 
     parser.add_argument('--n', type=int, default=500)
-    parser.add_argument('--batchsize', type=int, default=10)
+    parser.add_argument('--batchsize', type=int, default=25)
     parser.add_argument('--epochs', type=int, default=500)
-    parser.add_argument('--H', type=int, default=50)
+    parser.add_argument('--H', type=int, default=5)
 
     parser.add_argument('--dataset', type=str, choices=['tanh', 'rr'])
-    parser.add_argument('--prior-std', type=float, default=1.0)
+    parser.add_argument('--prior-std', type=float, default=50.0)
     parser.add_argument('--y-std', type=float, default=1.0)
 
     parser.add_argument('--betasbegin', type=float, default=0.01,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=0.5,
+    parser.add_argument('--betasend', type=float, default=2.0,
                         help='where beta range should end')
-    parser.add_argument('--numbetas', type=int, default=5,
+    parser.add_argument('--numbetas', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
     parser.add_argument('--R', type=int, default=5)
@@ -212,7 +212,7 @@ def main():
         # TODO: how to scale lr automatically so it doesn't explode, does it include beta or not?
         # lr = 0.01*args.batchsize / (beta * args.n)
 
-        lr = 0.001*(args.prior_std ** 4) * args.batchsize *args.w_dim / (beta * args.n)
+        lr = 0.001 * args.batchsize / (args.n)
         optimizer = optim.SGD(model.parameters(), lr=lr)
 
 
@@ -270,7 +270,7 @@ def main():
     nll = np.empty((1, args.R))
     for r in range(0, args.R):
         print('Training {}/{} ensemble'.format(r + 1,args.R))
-        nll[0, r] = train(beta, 1.0, 500)
+        nll[0, r] = train(beta, 1.0, 1000)
     LHS = np.mean(nll, 1)
 
     RLCT_estimate = (torch.tensor(LHS)-RHS.detach())/np.log(args.n)

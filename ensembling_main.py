@@ -20,23 +20,23 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Variational Inference')
 
-    parser.add_argument('--n', type=int, default=1000)
-    parser.add_argument('--batchsize', type=int, default=500)
+    parser.add_argument('--n', type=int, default=500)
+    parser.add_argument('--batchsize', type=int, default=10)
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--H', type=int, default=5)
 
     parser.add_argument('--dataset',type=str, choices=['tanh','rr'])
-    # parser.add_argument('--prior-std', type=float, default=1.0)
-    parser.add_argument('--y-std', type=float, default=0.1)
+    parser.add_argument('--prior-std', type=float, default=1.0)
+    parser.add_argument('--y-std', type=float, default=1.0)
 
-    parser.add_argument('--betasbegin', type=float, default=0.01,
+    parser.add_argument('--betasbegin', type=float, default=1.0,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=0.5,
+    parser.add_argument('--betasend', type=float, default=5.0,
                         help='where beta range should end')
-    parser.add_argument('--numbetas', type=int, default=5,
+    parser.add_argument('--numbetas', type=int, default=10,
                         help='how many betas should be swept between betasbegin and betasend')
 
-    parser.add_argument('--R', type=int, default=50)
+    parser.add_argument('--R', type=int, default=5)
 
     parser.add_argument('--MC', type=int, default=1)
     parser.add_argument('--taskid',type=int, default=1)
@@ -57,9 +57,9 @@ def main():
         #     1)  # input_dim * H
         # args.b_params = torch.eye(args.output_dim)
 
-        a = Normal(0.0,1.0)
-        args.a_params = 0.2 * a.sample((args.H0,args.input_dim))
-        b = Normal(0.0,1.0)
+        a = Normal(0.0, 1.0)
+        args.a_params = 0.2 * a.sample((args.H0, args.input_dim))
+        b = Normal(0.0, 1.0)
         args.b_params = 0.2 * b.sample((args.output_dim,args.H0))
         m = MultivariateNormal(torch.zeros(args.input_dim), torch.eye(args.input_dim))  # the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = 3.0*m.sample(torch.Size([2 * args.n]))
@@ -152,10 +152,10 @@ def main():
     # args.betas = np.linspace(args.betasbegin, args.betasend, args.numbetas)
 
     # TODO: set automatically?
-    args.prior_std = np.sqrt(args.w_dim * (args.y_std ** 2) * np.log(args.n) / (args.betasbegin * args.n))
+    # args.prior_std = np.sqrt(args.w_dim * (args.y_std ** 2) * np.log(args.n) / (args.betasbegin * args.n))
     # args.prior_std = np.sqrt(args.w_dim / (args.betasbegin * args.n))
-    args.prior_std = 10.0
-    print('prior std auto set to {}'.format(args.prior_std))
+    # args.prior_std = 10.0
+    # print('prior std auto set to {}'.format(args.prior_std))
 
     # %%
     # %%
@@ -199,7 +199,7 @@ def main():
         # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=wd_factor)
         # TODO: how to scale lr automatically so it doesn't explode, does it include beta or not?
         # lr = 0.01*args.batchsize / (beta * args.n)
-        lr = 0.001*args.batchsize / args.n
+        lr = args.batchsize / args.n
 
         optimizer = optim.SGD(model.parameters(), lr=lr)
 
@@ -232,8 +232,6 @@ def main():
 
     nll = np.empty((args.numbetas, args.R))
 
-    args.betas = [1.0, 1.0/np.log(args.n)]
-    args.numbetas = 2
 
     for beta_index in range(0, args.numbetas):
 
