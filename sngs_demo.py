@@ -53,20 +53,20 @@ from matplotlib import pyplot as plt
 class args():
 
     def __init__(self):
-        self.dataset = 'tanh'
+        self.dataset = 'rr'
         self.n = 1000
         self.batchsize = 50
-        self.epochs = 5000
+        self.epochs = 2000
 
-        self.H = 4
-        # self.eps = 0.1
-        self.stepsizedecay = 1.0
+        self.H = 10
+        self.eps = 1e-5
+        self.stepsizedecay = 0.9
 
-        self.betasbegin = 2.0
-        self.betasend = 3.0
+        self.betasbegin = 1.0
+        self.betasend = 2.0
         self.numbetas = 20
 
-        self.R = 50
+        self.R = 5
 
         self.method = 'simsekli'
 
@@ -78,13 +78,15 @@ def plot_energy(inverse_temp, nll):
 
     numbetas = inverse_temp.shape[0]
     design_x = np.vstack((np.ones(numbetas), 1 / inverse_temp)).T
-    design_y = np.mean(nll, 1)
+    # TODO: use median rather than mean?
+    design_y = np.nanmedian(nll, 1)
     design_y = design_y[:, np.newaxis]
     fit = inv(design_x.T.dot(design_x)).dot(design_x.T).dot(design_y)
     ols_intercept_estimate = fit[0][0]
     RLCT_estimate = fit[1][0]
 
-    plt.scatter(1 / inverse_temp, np.mean(nll, 1), label='nll beta')
+    # TODO: use median rather than mean?
+    plt.scatter(1 / inverse_temp, np.nanmedian(nll, 1), label='nll beta')
     plt.plot(1 / inverse_temp, ols_intercept_estimate + RLCT_estimate / inverse_temp, 'b-', label='ols')
     plt.title(
         "d/2 = {} , true lambda = {:.1f}, est lambda = {:.1f}".format(args.w_dim / 2, args.trueRLCT, RLCT_estimate),
@@ -115,6 +117,18 @@ class tanh(nn.Module):
 
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class reducedrank(nn.Module):
+    def __init__(self, input_dim, output_dim, H):
+        super(reducedrank, self).__init__()
+        self.fc1 = nn.Linear(input_dim, H, bias=False)
+        self.fc2 = nn.Linear(H, output_dim, bias=False)
+
+    def forward(self, x):
+        x = self.fc1(x)
         x = self.fc2(x)
         return x
 
@@ -184,8 +198,52 @@ elif args.dataset == 'tanh_nontrivial':
     max_integer = int(np.sqrt(args.H))
     args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
 
+elif args.dataset == 'rr':
 
-dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),                                                                         [args.n, 0, 0])
+    args.output_dim = 6
+    args.input_dim = 6
+    args.H0 = 3
+    args.y_std = 0.1
+
+    a = Normal(0.0, 1.0)
+    args.a_params = 0.2 * a.sample((args.input_dim, args.H0))
+    b = Normal(0.0, 1.0)
+    args.b_params = 0.2 * b.sample((args.H0, args.output_dim))
+    m = MultivariateNormal(torch.zeros(args.input_dim), torch.eye(
+        args.input_dim))  # the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
+    X = 3.0 * m.sample(torch.Size([args.n]))
+
+    true_mean = torch.matmul(torch.matmul(X, args.a_params), args.b_params)
+    y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
+    y = true_mean + args.y_std * y_rv.sample(torch.Size([args.n]))
+
+
+    criterion_sum = nn.MSELoss(reduction='sum')
+    baseline_nll = criterion_sum(true_mean, y)
+
+
+    args.w_dim = (args.input_dim + args.output_dim) * args.H
+
+    cond1 = (args.output_dim+args.H0) <= (args.input_dim+args.H)
+    cond2 = (args.input_dim+args.H0) <= (args.output_dim + args.H)
+    cond3 = (args.H + args.H0) <= (args.input_dim+args.output_dim)
+    if cond1 and cond2 and cond3:
+
+        args.trueRLCT = (2 * (args.H + args.H0) * (args.input_dim + args.output_dim)
+                         - (args.input_dim - args.output_dim) * (args.input_dim - args.output_dim)
+                         - (args.H + args.H0) * (args.H + args.H0)) / 8 #case 1a in Aoygai
+        if ((args.input_dim + args.output_dim + args.H + args.H0) % 2 == 1): # case 1b in Aoyagi
+            args.trueRLCT = (2 * (args.H + args.H0) * (args.input_dim + args.output_dim) - (
+                        args.input_dim - args.output_dim) * (args.input_dim - args.output_dim) - (args.H + args.H0) * (
+                                         args.H + args.H0) + 1) / 8
+    if (args.input_dim + args.H) < (args.output_dim + args.H0): # case 2 in Aoyagi
+        args.trueRLCT = (args.H * (args.input_dim -args.H0) + args.output_dim*args.H0) / 2
+    if (args.output_dim + args.H) < (args.input_dim + args.H0): # case 3 in Aoyagi
+        args.trueRLCT = (args.H * (args.output_dim -args.H0) + args.input_dim*args.H0) / 2
+    if (args.input_dim + args.output_dim) < (args.H + args.H0): # case 4 in Aoyagi
+        args.trueRLCT = (args.H * (args.input_dim -args.H0) + args.output_dim*args.H0) / 2
+
+dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[args.n, 0, 0])
 train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
 
 
@@ -204,39 +262,52 @@ for beta_index in range(0, args.numbetas):
             model = logistic(args.input_dim)
         elif args.dataset in ['tanh', 'tanh_nontrivial']:
             model = tanh(args.input_dim,args.output_dim,args.H)
+        elif args.dataset == 'rr':
+            model = reducedrank(args.input_dim,args.output_dim,args.H)
 
         print('Training {}/{} ensemble at {}/{} temp'.format(r + 1, args.R, beta_index + 1, args.numbetas))
 
         # according to Mandt, this is the ideal constant stepsize for approximating the posterior, assumed to be Gaussian
         if args.method == 'mandt':
             stepsize = args.eps * 2 * args.batchsize/(beta*args.n)
-        elif args.method == 'simsekli':
-            stepsize = 0.0001
+
         # Training
         for epoch in range(1, args.epochs):
 
-            output = model(X)
-            loss = criterion_sum(output, y)/args.n
-            loss.backward()
-
+            stepsize = (1e-9/(epoch+1)) ** 0.6
             for p in model.parameters():
+
                 if args.method == 'mandt':
+                    output = model(X)
+
+                    loss = criterion_sum(output, y) / args.n
+                    loss.backward()
+
                     nrv = Normal(0.0, 1.0/np.sqrt(args.batchsize))
                     blah = nrv.sample(p.shape)
                     p.data -= stepsize*(p.grad+blah)
+
                 elif args.method == 'simsekli':
-                    alpha = 1.0
-                    sigma = 0.1
-                    location = 0.0
+
+                    output = model(X)
+
+                    loss = criterion_sum(output,y)
+                    loss.backward()
+
+                    alpha = 1.5
+
+                    num = torch.tensor([alpha -1])
+                    denom = torch.tensor( [alpha/2] )
+                    c_alpha = torch.exp(torch.lgamma(num))/ (torch.exp(torch.lgamma(denom)) ** 2)
                     # TODO: wait a minute, this doesn't depend on temperature...
-                    symmetric_alpha_stable_draw = levy_stable.rvs(alpha,0,1.0,location,size=(p.shape[0],p.shape[1]))
-                    p.data -= stepsize*p.grad + stepsize * sigma * symmetric_alpha_stable_draw
+                    symmetric_alpha_stable_draw = levy_stable.rvs(alpha,0,size=(p.shape[0],p.shape[1]))
+                    p.data -= stepsize * c_alpha * beta* p.grad - (stepsize ** (1/alpha)) * symmetric_alpha_stable_draw
             # PyTorch stuffs
             model.zero_grad()
 
-            if (epoch+1) % 1000 == 0:
+            if (epoch+1) % 200 == 0:
                 print('Epoch {}: training nll {}, baseline nll {}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
-                stepsize = args.stepsizedecay*stepsize
+                # stepsize = args.stepsizedecay*args.eps
 
         # Record nll
         nll[beta_index, r] = criterion_sum(model(X), y)
