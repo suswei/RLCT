@@ -232,7 +232,6 @@ def main():
 
     nll = np.empty((args.numbetas, args.R))
 
-
     for beta_index in range(0, args.numbetas):
 
         beta = args.betas[beta_index]
@@ -248,6 +247,9 @@ def main():
             fit = inv(design_x.T.dot(design_x)).dot(design_x.T).dot(design_y)
             print('true RLCT {}, current RLCT estimate {}'.format(args.trueRLCT,fit[1][0]))
 
+        plt.hist(nll[beta_index,:])
+        plt.title('nLn(w) at inverse temp {}'.format(beta[beta_index]))
+        plt.show()
     # %%
 
     # average nll array over r
