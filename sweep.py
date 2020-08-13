@@ -6,25 +6,18 @@ def main(taskid):
 
     taskid = int(taskid[0])
     hyperparameter_config = {
-        'syntheticsamplesize': [100, 200],
-        'MCs': 5*[1]
+        'sas_alpha': [1.3,1.5,1.7,1.9],
+        'exp_schedule': [0.6,0.8,1.0],
+        # 'stepsize_constant': [True,False],
+        'eps': [1e-8, 1e-9]
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 main.py "
-              "--taskid %s "
-              "--w_dim 900 "
-              "--syntheticsamplesize %s "
-              "--dataset tanh_synthetic "
-              "--sanity_check "
-              "--betalogscale "
-              "--numbetas 5 "
-              "--MCs %s "
-              "--num-warmup 10000 "
-              "--num-samples 10000"
-              %(taskid, temp['syntheticsamplesize'], temp['MCs']))
+    os.system("python3 langevin_monte_carlo.py "
+              "--taskid %s --method simsekli --sas-alpha %s --exp-schedule %s"
+              %(taskid, temp['sas_alpha'], temp['exp_schedule']))
 
 # def main(taskid):
 #
