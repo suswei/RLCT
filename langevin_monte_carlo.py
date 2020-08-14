@@ -52,7 +52,7 @@ from matplotlib import pyplot as plt
 # self.R = 50
 # self.stepsizedecay = 0.3
 
-def plot_energy(args, inverse_temp, nll, savefig=False):
+def plot_energy(args, inverse_temp, nll, savefigname, savefig=False):
 
     numbetas = inverse_temp.shape[0]
     design_x = np.vstack((np.ones(numbetas), 1 / inverse_temp)).T
@@ -73,9 +73,8 @@ def plot_energy(args, inverse_temp, nll, savefig=False):
     plt.ylabel("E^beta_w [nL_n(w)]", fontsize=8)
     plt.legend()
     if savefig:
-        plt.savefig('taskid{}/lsfit.png'.format(args.taskid))
+        plt.savefig('taskid{}/{}.png'.format(args.taskid,savefigname))
     plt.show()
-
 
 
 class logistic(nn.Module):
@@ -119,32 +118,37 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='RLCT Variational Inference')
 
+    # dataset
     parser.add_argument('--n', type=int, default=1000)
-    parser.add_argument('--batchsize', type=int, default=10)
+    parser.add_argument('--dataset', type=str, choices=['tanh','rr'],default='rr')
+    # data generating parameters
+    parser.add_argument('--rr',  nargs='*', type=float, help='input_dim, output_dim, H0, y_std, a_std, b_std', default=[20, 20, 3, 0.1, 0.2, 0.2])
+    parser.add_argument('--tanh',  nargs='*', type=float, help='unif start, unif end, y_std', default=[10, 10, 3, 0.1])
+    parser.add_argument('--tanh-nontrivial',  nargs='*', type=int, help='input_dim, output_dim, H0, x_std, y_std', default=[10, 10, 3, 1.0, 0.1])
+
+    # model and training
+    parser.add_argument('--H', type=int, default=10)
+    parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
     parser.add_argument('--epochs', type=int, default=2000)
-    parser.add_argument('--H', type=int, default=6)
 
-    parser.add_argument('--dataset',type=str, default = 'rr', choices=['tanh','rr','tanh_nontrivial'])
-
-    parser.add_argument('--betasbegin', type=float, default=0.1,
+    # inverse temps
+    parser.add_argument('--betasbegin', type=float, default=2.0,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=2.0,
+    parser.add_argument('--betasend', type=float, default=3.0,
                         help='where beta range should end')
     parser.add_argument('--numbetas', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
     parser.add_argument('--R', type=int, default=50)
 
+    parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli','mandt'])
+    # method specific parameters
+    parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8,0.9])
+    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, eta, and gamma in (eta/t)^gamma', default=[1.3,1e-8,0.6])
+
     parser.add_argument('--taskid',type=int, default=1)
 
-    parser.add_argument('--eps',type=float, default=1e-8)
-    # parser.add_argument('--stepsizedecay',type=float, default=1.0)
-    parser.add_argument('--method', default = 'simsekli', type=str, choices=['simsekli','mandt'])
-    parser.add_argument('--sas-alpha',type=float, default=1.7)
-    parser.add_argument('--exp-schedule',type=float, default=0.6)
-
     args = parser.parse_args()
-
 
     if args.dataset == 'lr':
 
@@ -167,12 +171,16 @@ def main():
 
     elif args.dataset == 'tanh':
 
-        m = Uniform(torch.tensor([-1.0]), torch.tensor([1.0]))
+        unif_start = args.tanh[0]
+        unif_end = args.tanh[1]
+        args.y_std = args.tanh[2]
+
+        m = Uniform(torch.tensor([unif_start]), torch.tensor([unif_end]))
         X = m.sample(torch.Size([args.n]))
 
         # generate target from N(0,1)
         y_rv = Normal(0.0, 0.1)  # torch.distributions.normal.Normal(loc, scale) where scale is standard deviation
-        y = y_rv.sample(torch.Size([args.n, 1]))
+        y = args.y_std*y_rv.sample(torch.Size([args.n, 1]))
 
         args.input_dim = X.shape[1]
         args.output_dim = y.shape[1]
@@ -185,24 +193,26 @@ def main():
 
     elif args.dataset == 'tanh_nontrivial':
 
-        m = Normal(0.0,2.0)
-        args.input_dim = 3
+        args.input_dim = args.tanh_nontrivial[0]
+        args.output_dim = args.tanh_nontrivial[1]
+        args.H0 = args.tanh_nontrivial[2]
+        args.x_std = args.tanh_nontrivial[3]
+        args.y_std = args.tanh_nontrivial[4]
+
+        # generate input
+        m = Normal(0.0, args.x_std)
         X = m.sample(torch.Size([args.n, args.input_dim]))
 
-        # generate target from N(0,1)
-        args.output_dim = 3
-        H0 = 1
-        y_std = 0.1
-        y_rv = Normal(0.0, 0.1)  # torch.distributions.normal.Normal(loc, scale) where scale is standard deviation
+        # true mean
         a0 = Normal(0.0, 1.0)
-        a_params = a0.sample((args.input_dim,H0))
+        a_params = a0.sample((args.input_dim,args.H0))
         b0 = Normal(0.0, 1.0)
-        b_params = b0.sample((H0, args.output_dim))
+        b_params = b0.sample((args.H0, args.output_dim))
         true_mean = torch.matmul(torch.tanh(torch.matmul(X, a_params)), b_params)
 
-        # true_model = tanh(args.input_dim, args.output_dim, 1)
-        # true_mean = true_model(X)
-        y = true_mean + y_std * y_rv.sample(torch.Size([args.n, args.output_dim]))
+        # generate target from N(true_mean,y_std)
+        y_rv = Normal(0.0, 1.0)  # torch.distributions.normal.Normal(loc, scale) where scale is standard deviation
+        y = true_mean + args.y_std * y_rv.sample(torch.Size([args.n, args.output_dim]))
 
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(true_mean, y)
@@ -213,11 +223,12 @@ def main():
 
     elif args.dataset == 'rr':
 
-        # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
-        args.output_dim = 3
-        args.input_dim = 3
-        args.H0 = 3
-        args.y_std = 0.1
+        args.input_dim = args.rr[0]
+        args.output_dim = args.rr[1]
+        args.H0 = args.rr[2]
+        args.y_std = args.rr[3]
+        args.a_std = args.rr[4]
+        args.b_std = args.rr[5]
 
         a = Normal(0.0, 1.0)
         args.a_params = 0.2 * a.sample((args.input_dim, args.H0))
@@ -231,18 +242,16 @@ def main():
         y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
         y = true_mean + args.y_std * y_rv.sample(torch.Size([args.n]))
 
-
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(true_mean, y)
 
-
         args.w_dim = (args.input_dim + args.output_dim) * args.H
 
+        # determining theoretical RLCT
         cond1 = (args.output_dim+args.H0) <= (args.input_dim+args.H)
         cond2 = (args.input_dim+args.H0) <= (args.output_dim + args.H)
         cond3 = (args.H + args.H0) <= (args.input_dim+args.output_dim)
         if cond1 and cond2 and cond3:
-
             args.trueRLCT = (2 * (args.H + args.H0) * (args.input_dim + args.output_dim)
                              - (args.input_dim - args.output_dim) * (args.input_dim - args.output_dim)
                              - (args.H + args.H0) * (args.H + args.H0)) / 8 #case 1a in Aoygai
@@ -256,6 +265,7 @@ def main():
             args.trueRLCT = (args.H * (args.output_dim - args.H0) + args.input_dim*args.H0) / 2
         if (args.input_dim + args.output_dim) < (args.H + args.H0): # case 4 in Aoyagi
             args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim*args.H0) / 2
+        # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
 
     dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[args.n, 0, 0])
     train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
@@ -263,9 +273,7 @@ def main():
 
     nll = np.empty((args.numbetas, args.R))
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
-    inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas))
-
-    print(vars(args))
+    inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas),axis=0)
 
     path = './taskid{}'.format(args.taskid)
     if not os.path.exists(path):
@@ -295,14 +303,16 @@ def main():
 
                 # according to Mandt, this is the ideal constant stepsize for approximating the posterior, assumed to be Gaussian
                 if args.method == 'mandt':
-                    stepsize = args.eps * 2 * args.batchsize / (beta * args.n)
+
+                    stepsize_factor = args.mandt_params[0]
+                    stepsize = stepsize_factor * 2 * args.batchsize / (beta * args.n)
+
                 elif args.method == 'simsekli':
-                    stepsize = (args.eps/(epoch+1)) ** args.exp_schedule
 
-                    sas_alpha = args.sas_alpha
-
-                    num = torch.tensor([sas_alpha - 1])
-                    denom = torch.tensor([sas_alpha / 2])
+                    alpha = args.simsekli_params[0]
+                    stepsize = (args.simsekli_params[1]/(epoch+1)) ** args.simsekli_params[2]
+                    num = torch.tensor([alpha - 1])
+                    denom = torch.tensor([alpha / 2])
                     c_alpha = torch.exp(torch.lgamma(num)) / (torch.exp(torch.lgamma(denom)) ** 2)
 
 
@@ -321,20 +331,19 @@ def main():
                     elif args.method == 'simsekli':
 
                         output = model(X)
-
-                        loss = criterion_sum(output,y)
+                        loss = criterion_sum(output, y)
                         loss.backward()
 
-
                         # TODO: wait a minute, this doesn't depend on temperature...
-                        symmetric_alpha_stable_draw = levy_stable.rvs(sas_alpha,0,size=(p.shape[0],p.shape[1]))
-                        p.data -= stepsize * c_alpha * beta* p.grad - (stepsize ** (1/sas_alpha)) * symmetric_alpha_stable_draw
+                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1/alpha)) * symmetric_alpha_stable_draw
 
                 model.zero_grad()
 
                 if (epoch+1) % 200 == 0:
-                    print('Epoch {}: training nll {}, baseline nll {}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
-                    # stepsize = args.stepsizedecay * stepsize
+                    print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
+                    if args.method == 'mandt':
+                        stepsize = args.mandt_params[1] * stepsize
 
             # Record nll
             nll[beta_index, r] = criterion_sum(model(X), y)
@@ -342,14 +351,15 @@ def main():
         temp = nll[beta_index,:]
         plt.hist(temp[~np.isnan(temp)])
         plt.title('nLn(w) at inverse temp {}'.format(beta))
-        plt.savefig('taskid{}/nll_hist_temp{:2f}.png'.format(args.taskid,beta))
+        plt.savefig('taskid{}/nllhist_invtemp{:.2f}.png'.format(args.taskid,beta))
         plt.show()
 
         if beta_index > 0:
-            plot_energy(args, inverse_temp[0:beta_index + 1], nll[0:beta_index + 1, :])
+            plot_energy(args, inverse_temp[0:beta_index + 1], nll[0:beta_index + 1, :],savefig=True,savefigname='lsfit_upto_beta{:.2f}'.format(beta_index))
 
-    plot_energy(args, inverse_temp, nll, savefig=True)
-
+    plot_energy(args, inverse_temp, nll, savefig=True, savefigname='lsfit')
+    results = {'invtemp': inverse_temp, 'nll': nll}
+    torch.save(results, 'results.pt')
 
 if __name__ == "__main__":
     main()

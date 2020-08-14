@@ -37,20 +37,21 @@ import itertools
 
 def main(taskid):
 
+    # TODO: some  combintations lead to clearly bad outcomes
     taskid = int(taskid[0])
     hyperparameter_config = {
-        'sas_alpha': [1.3,1.5,1.7,1.9],
-        'exp_schedule': [0.6,0.8,1.0],
-        # 'stepsize_constant': [True,False],
-        'eps': [1e-8, 1e-9]
+        'H': [3, 5, 10],
+        'alpha': [1.3,1.5,1.7,1.9],
+        'eta': [1e-8, 1e-9],
+        'gamma': [0.6,0.8,1.0],
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 langevin_monte_carlo.py "
-              "--taskid %s --method simsekli --sas-alpha %s --exp-schedule %s"
-              %(taskid, temp['sas_alpha'], temp['exp_schedule']))
+              "--taskid %s --method simsekli --simsekli-params %s %s %s"
+              %(taskid, temp['alpha'], temp['eta'], temp['gamma']))
 
 # def main(taskid):
 #
