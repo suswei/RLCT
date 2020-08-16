@@ -6,6 +6,7 @@ import os
 import numpy as np
 from numpy.linalg import inv
 import argparse
+import copy
 
 import torch
 import torch.nn as nn
@@ -15,6 +16,7 @@ from torch.distributions.normal import Normal
 from torch.distributions.uniform import Uniform
 
 from scipy.stats import levy_stable
+from sklearn.linear_model import ElasticNet
 
 from matplotlib import pyplot as plt
 
@@ -54,21 +56,31 @@ from matplotlib import pyplot as plt
 
 def plot_energy(args, inverse_temp, nll, savefigname, savefig=False):
 
+    # ordinary ls fit
     numbetas = inverse_temp.shape[0]
     design_x = np.vstack((np.ones(numbetas), 1 / inverse_temp)).T
-    # TODO: use median rather than mean?
     design_y = np.nanmean(nll, 1)
     design_y = design_y[:, np.newaxis]
     fit = inv(design_x.T.dot(design_x)).dot(design_x.T).dot(design_y)
     ols_intercept_estimate = fit[0][0]
     RLCT_estimate = fit[1][0]
 
-    # TODO: use median rather than mean?
+    # robust ls fit
+    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=0.5)
+    regr.fit(np.expand_dims(inverse_temp, 1), design_y)
+    robust_intercept_estimate = regr.intercept_
+    # slope_estimate = min(regr.coef_[0],args.w_dim/2)
+    robust_slope_estimate = regr.coef_[0]
+
     plt.scatter(1 / inverse_temp, np.nanmean(nll, 1), label='nll beta')
     plt.plot(1 / inverse_temp, ols_intercept_estimate + RLCT_estimate / inverse_temp, 'b-', label='ols')
-    plt.title(
-        "d/2 = {} , true lambda = {:.1f}, est lambda = {:.1f}".format(args.w_dim / 2, args.trueRLCT, RLCT_estimate),
-        fontsize=8)
+    if args.trueRLCT is not None:
+        plt.title("d/2 = {} , true RLCT = {:.1f}, est RLCT = {:.1f}, robust RLCT = {:.1f}".format(args.w_dim/2, args.trueRLCT, RLCT_estimate, robust_slope_estimate), fontsize=8)
+    elif args.RLCT_ub is not None:
+        plt.title("d/2 = {} , upper bound RLCT = {:.1f}, est RLCT = {:.1f}, robust RLCT = {:.1f}".format(args.w_dim/2, args.RLCT_ub, RLCT_estimate, robust_slope_estimate), fontsize=8)
+    else:
+        plt.title("d/2 = {}, est RLCT = {:.1f}, robust RLCT = {:.1f}".format(args.w_dim/2, RLCT_estimate, robust_slope_estimate), fontsize=8)
+
     plt.xlabel("1/beta", fontsize=8)
     plt.ylabel("E^beta_w [nL_n(w)]", fontsize=8)
     plt.legend()
@@ -76,10 +88,11 @@ def plot_energy(args, inverse_temp, nll, savefigname, savefig=False):
         plt.savefig('taskid{}/{}.png'.format(args.taskid,savefigname))
     plt.show()
 
+    return robust_slope_estimate, RLCT_estimate
 
-class logistic(nn.Module):
+class Logistic(nn.Module):
     def __init__(self, input_dim, bias=True):
-        super(logistic, self).__init__()
+        super(Logistic, self).__init__()
         self.linear = nn.Linear(input_dim, 1, bias=bias)
 
     def forward(self, x):
@@ -87,11 +100,11 @@ class logistic(nn.Module):
         return torch.sigmoid(x)
 
 
-class tanh(nn.Module):
+class Tanh(nn.Module):
 
     def __init__(self, input_dim, output_dim, H):
 
-        super(tanh, self).__init__()
+        super(Tanh, self).__init__()
         self.fc1 = nn.Linear(input_dim, H, bias=False)
         self.fc2 = nn.Linear(H, output_dim, bias=False)
 
@@ -101,9 +114,9 @@ class tanh(nn.Module):
         return x
 
 
-class reducedrank(nn.Module):
+class ReducedRank(nn.Module):
     def __init__(self, input_dim, output_dim, H):
-        super(reducedrank, self).__init__()
+        super(ReducedRank, self).__init__()
         self.fc1 = nn.Linear(input_dim, H, bias=False)
         self.fc2 = nn.Linear(H, output_dim, bias=False)
 
@@ -113,43 +126,8 @@ class reducedrank(nn.Module):
         return x
 
 
-def main():
-
-    # Training settings
-    parser = argparse.ArgumentParser(description='RLCT Variational Inference')
-
-    # dataset
-    parser.add_argument('--n', type=int, default=1000)
-    parser.add_argument('--dataset', type=str, choices=['tanh','rr'],default='rr')
-    # data generating parameters
-    parser.add_argument('--rr',  nargs='*', type=float, help='input_dim, output_dim, H0, y_std, a_std, b_std', default=[20, 20, 3, 0.1, 0.2, 0.2])
-    parser.add_argument('--tanh',  nargs='*', type=float, help='unif start, unif end, y_std', default=[10, 10, 3, 0.1])
-    parser.add_argument('--tanh-nontrivial',  nargs='*', type=int, help='input_dim, output_dim, H0, x_std, y_std', default=[10, 10, 3, 1.0, 0.1])
-
-    # model and training
-    parser.add_argument('--H', type=int, default=10)
-    parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
-    parser.add_argument('--epochs', type=int, default=2000)
-
-    # inverse temps
-    parser.add_argument('--betasbegin', type=float, default=2.0,
-                        help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=3.0,
-                        help='where beta range should end')
-    parser.add_argument('--numbetas', type=int, default=20,
-                        help='how many betas should be swept between betasbegin and betasend')
-
-    parser.add_argument('--R', type=int, default=50)
-
-    parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli','mandt'])
-    # method specific parameters
-    parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8,0.9])
-    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, eta, and gamma in (eta/t)^gamma', default=[1.3,1e-8,0.6])
-
-    parser.add_argument('--taskid',type=int, default=1)
-
-    args = parser.parse_args()
-
+def get_data(args):
+    
     if args.dataset == 'lr':
 
         unit_normal = Normal(0.0, 1.0)
@@ -166,8 +144,6 @@ def main():
 
         args.input_dim = args.H
         args.output_dim = 1
-        args.w_dim = args.H+1
-        args.trueRLCT = args.w_dim/2
 
     elif args.dataset == 'tanh':
 
@@ -186,10 +162,6 @@ def main():
         args.output_dim = y.shape[1]
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(torch.zeros_like(y), y)
-
-        args.w_dim = (args.input_dim + args.output_dim) * args.H
-        max_integer = int(np.sqrt(args.H))
-        args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
 
     elif args.dataset == 'tanh_nontrivial':
 
@@ -217,10 +189,6 @@ def main():
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(true_mean, y)
 
-        args.w_dim = (args.input_dim + args.output_dim) * args.H
-        max_integer = int(np.sqrt(args.H))
-        args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
-
     elif args.dataset == 'rr':
 
         args.input_dim = args.rr[0]
@@ -245,105 +213,244 @@ def main():
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(true_mean, y)
 
+    # dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[args.n, 0, 0])
+    # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
+
+    return X,y,criterion_sum, baseline_nll
+
+def get_model(args):
+
+    if args.dataset == 'lr':
+
+        args.init_model = Logistic(args.input_dim)
+        args.w_dim = args.H + 1
+        args.trueRLCT = args.w_dim / 2
+
+    elif args.dataset == 'tanh':
+
+        args.init_model = Tanh(args.input_dim, args.output_dim, args.H)
+        args.w_dim = (args.input_dim + args.output_dim) * args.H
+        max_integer = int(np.sqrt(args.H))
+        args.trueRLCT = (args.H + max_integer * max_integer + max_integer) / (4 * max_integer + 2)
+
+    elif args.dataset == 'tanh_nontrivial':
+
+        args.init_model = Tanh(args.input_dim, args.output_dim, args.H)
+        args.w_dim = (args.input_dim + args.output_dim) * args.H
+        N1 = args.output_dim + 1
+        H1 = args.H - args.H0
+        args.RLCT_ub = 0.5 * (args.H0 * (args.input_dim + N1) + min(N1 * H1, args.input_dim * H1, (
+                    args.input_dim * H1 + 2 * args.input_dim * N1) / 3))
+        args.trueRLCT = None
+
+    elif args.dataset == 'rr':
+
+        args.init_model = ReducedRank(args.input_dim, args.output_dim, args.H)
+
         args.w_dim = (args.input_dim + args.output_dim) * args.H
 
         # determining theoretical RLCT
-        cond1 = (args.output_dim+args.H0) <= (args.input_dim+args.H)
-        cond2 = (args.input_dim+args.H0) <= (args.output_dim + args.H)
-        cond3 = (args.H + args.H0) <= (args.input_dim+args.output_dim)
+        cond1 = (args.output_dim + args.H0) <= (args.input_dim + args.H)
+        cond2 = (args.input_dim + args.H0) <= (args.output_dim + args.H)
+        cond3 = (args.H + args.H0) <= (args.input_dim + args.output_dim)
         if cond1 and cond2 and cond3:
             args.trueRLCT = (2 * (args.H + args.H0) * (args.input_dim + args.output_dim)
                              - (args.input_dim - args.output_dim) * (args.input_dim - args.output_dim)
-                             - (args.H + args.H0) * (args.H + args.H0)) / 8 #case 1a in Aoygai
-            if (args.input_dim + args.output_dim + args.H + args.H0) % 2 == 1: # case 1b in Aoyagi
+                             - (args.H + args.H0) * (args.H + args.H0)) / 8  # case 1a in Aoygai
+            if (args.input_dim + args.output_dim + args.H + args.H0) % 2 == 1:  # case 1b in Aoyagi
                 args.trueRLCT = (2 * (args.H + args.H0) * (args.input_dim + args.output_dim) - (
-                            args.input_dim - args.output_dim) * (args.input_dim - args.output_dim) - (args.H + args.H0) * (
-                                             args.H + args.H0) + 1) / 8
-        if (args.input_dim + args.H) < (args.output_dim + args.H0): # case 2 in Aoyagi
-            args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim*args.H0) / 2
-        if (args.output_dim + args.H) < (args.input_dim + args.H0): # case 3 in Aoyagi
-            args.trueRLCT = (args.H * (args.output_dim - args.H0) + args.input_dim*args.H0) / 2
-        if (args.input_dim + args.output_dim) < (args.H + args.H0): # case 4 in Aoyagi
-            args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim*args.H0) / 2
+                        args.input_dim - args.output_dim) * (args.input_dim - args.output_dim) - (args.H + args.H0) * (
+                                         args.H + args.H0) + 1) / 8
+        if (args.input_dim + args.H) < (args.output_dim + args.H0):  # case 2 in Aoyagi
+            args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim * args.H0) / 2
+        if (args.output_dim + args.H) < (args.input_dim + args.H0):  # case 3 in Aoyagi
+            args.trueRLCT = (args.H * (args.output_dim - args.H0) + args.input_dim * args.H0) / 2
+        if (args.input_dim + args.output_dim) < (args.H + args.H0):  # case 4 in Aoyagi
+            args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim * args.H0) / 2
         # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
 
-    dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[args.n, 0, 0])
-    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
+
+class EarlyStopping:
+    """Early stops the training if validation loss doesn't improve after a given patience."""
+    def __init__(self, patience=100, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each validation loss improvement.
+                            Default: False
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+                            Default: 0
+            path (str): Path for the checkpoint to be saved to.
+                            Default: 'checkpoint.pt'
+            trace_func (function): trace print function.
+                            Default: print
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.path = path
+        self.trace_func = trace_func
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            # self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        '''Saves model when validation loss decrease.'''
+        if self.verbose:
+            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss
+
+def main():
+
+    # Training settings
+    parser = argparse.ArgumentParser(description='RLCT Variational Inference')
+
+    # dataset
+    parser.add_argument('--n', type=int, default=1000)
+    parser.add_argument('--dataset', type=str, choices=['tanh', 'rr','tanh_nontrivial','lr'], default='rr')
+    # data generating parameters
+    parser.add_argument('--rr',  nargs='*', type=float, help='input_dim, output_dim, H0, y_std, a_std, b_std', default=[10, 10, 3, 0.1, 0.2, 0.2])
+    parser.add_argument('--tanh',  nargs='*', type=float, help='unif start, unif end, y_std', default=[10, 10, 0.1])
+    parser.add_argument('--tanh_nontrivial',  nargs='*', type=int, help='input_dim, output_dim, H0, x_std, y_std', default=[10, 10, 3, 1.0, 0.1])
+
+    # model and training
+    parser.add_argument('--H', type=int, default=4)
+    parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
+    parser.add_argument('--epochs', type=int, default=2000)
+
+    # inverse temps
+    parser.add_argument('--betasbegin', type=float, default=0.5,
+                        help='where beta range should begin')
+    parser.add_argument('--betasend', type=float, default=2.0,
+                        help='where beta range should end')
+    parser.add_argument('--numbetas', type=int, default=20,
+                        help='how many betas should be swept between betasbegin and betasend')
+
+    parser.add_argument('--R', type=int, default=50)
+
+    parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli', 'mandt'])
+    # method specific parameters
+    parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8,0.9])
+    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.3,0.6])
+
+    parser.add_argument('--taskid', type=int, default=1)
+
+    args = parser.parse_args()
+
+    path = './taskid{}'.format(args.taskid)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    print(vars(args))
+    torch.save(vars(args), '{}/config.pt'.format(path))
+
+    X, y, criterion_sum, baseline_nll = get_data(args)
+
+    get_model(args)
+
+    if args.method == 'mandt':
+        stepsize_factor = args.mandt_params[0]
+        stepsize = stepsize_factor * 2 * args.batchsize / args.n
+    if args.method == 'simsekli':
+        alpha = args.simsekli_params[0]
+        num = torch.tensor([alpha - 1])
+        denom = torch.tensor([alpha / 2])
+        c_alpha = torch.exp(torch.lgamma(num)) / (torch.exp(torch.lgamma(denom)) ** 2)
+
+    def train(model, eps, epochs):
+
+        early_stopping = EarlyStopping(path='taskid{}/checkpoint.pt'.format(args.taskid))
+
+        for epoch in range(1, epochs):
+
+            # adjust step size after each epoch
+            if args.method == 'mandt':
+                stepsize = args.mandt_params[1] * stepsize
+            elif args.method == 'simsekli':
+                stepsize = (eps / (epoch + 1)) ** args.simsekli_params[1]
+
+            for p in model.parameters():
+
+                if args.method == 'mandt':
+
+                    output = model(X)
+                    loss = criterion_sum(output, y) / args.n
+                    loss.backward()
+
+                    nrv = Normal(0.0, 1.0 / np.sqrt(args.batchsize))
+                    blah = nrv.sample(p.shape)
+                    p.data -= stepsize * (p.grad + blah) / beta
+
+                elif args.method == 'simsekli':
+
+                    output = model(X)
+                    loss = criterion_sum(output, y)
+                    loss.backward()
+
+                    symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                    p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+
+            model.zero_grad()
+
+            if (epoch + 1) % 200 == 0:
+                print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
+            if torch.isnan(loss):
+                return True
+
+            early_stopping(loss.item(), model)
+
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        # load the last checkpoint with the best model
+        model.load_state_dict(torch.load('taskid{}/checkpoint.pt'.format(args.taskid)))
 
 
     nll = np.empty((args.numbetas, args.R))
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
     inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas),axis=0)
 
-    path = './taskid{}'.format(args.taskid)
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    args_dict = vars(args)
-    print(args_dict)
-    torch.save(args_dict, '{}/config.pt'.format(path))
-
     for beta_index in range(0, args.numbetas):
 
         beta = inverse_temp[beta_index]
 
-        for r in range(0, args.R):
+        # find learning rate
+        print('Pretraining to find learning rate')
+        nan_flg = True
+        eps = 1
+        while nan_flg is True:
+            model = copy.deepcopy(args.init_model)
+            eps = eps / 10
+            nan_flg = train(model, eps, args.epochs)
+        print('Finished pre-training to find learning rate, eps = {}'.format(eps))
 
-            if args.dataset == 'lr':
-                model = logistic(args.input_dim)
-            elif args.dataset in ['tanh', 'tanh_nontrivial']:
-                model = tanh(args.input_dim,args.output_dim,args.H)
-            elif args.dataset == 'rr':
-                model = reducedrank(args.input_dim,args.output_dim,args.H)
+        for r in range(0, args.R):
 
             print('Training {}/{} ensemble at {}/{} temp'.format(r + 1, args.R, beta_index + 1, args.numbetas))
 
             # Training
-            for epoch in range(1, args.epochs):
-
-                # according to Mandt, this is the ideal constant stepsize for approximating the posterior, assumed to be Gaussian
-                if args.method == 'mandt':
-
-                    stepsize_factor = args.mandt_params[0]
-                    stepsize = stepsize_factor * 2 * args.batchsize / (beta * args.n)
-
-                elif args.method == 'simsekli':
-
-                    alpha = args.simsekli_params[0]
-                    stepsize = (args.simsekli_params[1]/(epoch+1)) ** args.simsekli_params[2]
-                    num = torch.tensor([alpha - 1])
-                    denom = torch.tensor([alpha / 2])
-                    c_alpha = torch.exp(torch.lgamma(num)) / (torch.exp(torch.lgamma(denom)) ** 2)
-
-
-                for p in model.parameters():
-
-                    if args.method == 'mandt':
-                        output = model(X)
-
-                        loss = criterion_sum(output, y) / args.n
-                        loss.backward()
-
-                        nrv = Normal(0.0, 1.0/np.sqrt(args.batchsize))
-                        blah = nrv.sample(p.shape)
-                        p.data -= stepsize*(p.grad+blah)
-
-                    elif args.method == 'simsekli':
-
-                        output = model(X)
-                        loss = criterion_sum(output, y)
-                        loss.backward()
-
-                        # TODO: wait a minute, this doesn't depend on temperature...
-                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
-                        p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1/alpha)) * symmetric_alpha_stable_draw
-
-                model.zero_grad()
-
-                if (epoch+1) % 200 == 0:
-                    print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
-                    if args.method == 'mandt':
-                        stepsize = args.mandt_params[1] * stepsize
+            model = copy.deepcopy(args.init_model)
+            train(model, eps, args.epochs)
 
             # Record nll
             nll[beta_index, r] = criterion_sum(model(X), y)
@@ -357,9 +464,10 @@ def main():
         if beta_index > 0:
             plot_energy(args, inverse_temp[0:beta_index + 1], nll[0:beta_index + 1, :],savefig=True,savefigname='lsfit_upto_beta{:.2f}'.format(beta_index))
 
-    plot_energy(args, inverse_temp, nll, savefig=True, savefigname='lsfit')
-    results = {'invtemp': inverse_temp, 'nll': nll}
-    torch.save(results, 'results.pt')
+    robust_slope_estimate, ols_slope_estimate = plot_energy(args, inverse_temp, nll, savefig=True, savefigname='lsfit')
+    results = {'invtemp': inverse_temp, 'nll': nll, 'robust RLCT estimate': robust_slope_estimate, 'ols RLCT estimate':ols_slope_estimate}
+    torch.save(results, 'taskid{}/results.pt'.format(args.taskid))
+
 
 if __name__ == "__main__":
     main()
