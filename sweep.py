@@ -40,7 +40,7 @@ def main(taskid):
     # TODO: some  combintations lead to clearly bad outcomes
     taskid = int(taskid[0])
     hyperparameter_config = {
-        'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
+        # 'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
         'H': [3, 5, 10],
         'alpha': [1.3, 1.5, 1.7, 1.9],
         'gamma': [0.6, 0.8],
@@ -50,9 +50,9 @@ def main(taskid):
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 langevin_monte_carlo.py "
-              "--R 2 --numbetas 2 "
-              "--taskid %s --dataset %s --method simsekli --simsekli-params %s %s"
-              %(taskid, temp['dataset'], temp['alpha'], temp['gamma']))
+              # "--R 2 --numbetas 2 "
+              "--taskid %s --dataset rr --method simsekli --simsekli-params %s %s"
+              %(taskid, temp['alpha'], temp['gamma']))
 
 # def main(taskid):
 #

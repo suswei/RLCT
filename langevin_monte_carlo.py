@@ -54,25 +54,25 @@ from matplotlib import pyplot as plt
 # self.R = 50
 # self.stepsizedecay = 0.3
 
-def plot_energy(args, inverse_temp, nll, savefigname, savefig=False):
+def plot_energy(args, inverse_temp, avg_nlls_beta, savefigname, savefig=False):
 
     # ordinary ls fit
     numbetas = inverse_temp.shape[0]
     design_x = np.vstack((np.ones(numbetas), 1 / inverse_temp)).T
-    design_y = np.nanmean(nll, 1)
+    design_y = avg_nlls_beta
     design_y = design_y[:, np.newaxis]
     fit = inv(design_x.T.dot(design_x)).dot(design_x.T).dot(design_y)
     ols_intercept_estimate = fit[0][0]
     RLCT_estimate = fit[1][0]
 
     # robust ls fit
-    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=0.5)
+    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=1.0)
     regr.fit(np.expand_dims(inverse_temp, 1), design_y)
     robust_intercept_estimate = regr.intercept_
     # slope_estimate = min(regr.coef_[0],args.w_dim/2)
     robust_slope_estimate = regr.coef_[0]
 
-    plt.scatter(1 / inverse_temp, np.nanmean(nll, 1), label='nll beta')
+    plt.scatter(1 / inverse_temp, avg_nlls_beta, label='nll beta')
     plt.plot(1 / inverse_temp, ols_intercept_estimate + RLCT_estimate / inverse_temp, 'b-', label='ols')
     if args.trueRLCT is not None:
         plt.title("d/2 = {} , true RLCT = {:.1f}, est RLCT = {:.1f}, robust RLCT = {:.1f}".format(args.w_dim/2, args.trueRLCT, RLCT_estimate, robust_slope_estimate), fontsize=8)
@@ -272,7 +272,7 @@ def get_model(args):
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=100, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
+    def __init__(self, patience=10, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -327,30 +327,41 @@ def main():
     # dataset
     parser.add_argument('--n', type=int, default=1000)
     parser.add_argument('--dataset', type=str, choices=['tanh', 'rr','tanh_nontrivial','lr'], default='rr')
+
     # data generating parameters
-    parser.add_argument('--rr',  nargs='*', type=float, help='input_dim, output_dim, H0, y_std, a_std, b_std', default=[10, 10, 3, 0.1, 0.2, 0.2])
-    parser.add_argument('--tanh',  nargs='*', type=float, help='unif start, unif end, y_std', default=[10, 10, 0.1])
-    parser.add_argument('--tanh_nontrivial',  nargs='*', type=int, help='input_dim, output_dim, H0, x_std, y_std', default=[10, 10, 3, 1.0, 0.1])
+    parser.add_argument('--rr',  nargs='*', type=float,
+                        help='input_dim, output_dim, H0, y_std, a_std, b_std',
+                        default=[30, 30, 2, 0.1, 0.2, 0.2])
+
+    parser.add_argument('--tanh',  nargs='*', type=float,
+                        help='unif start, unif end, y_std',
+                        default=[10, 10, 0.1])
+
+    parser.add_argument('--tanh_nontrivial',  nargs='*', type=int,
+                        help='input_dim, output_dim, H0, x_std, y_std',
+                        default=[10, 10, 3, 1.0, 0.1])
 
     # model and training
-    parser.add_argument('--H', type=int, default=4)
+    parser.add_argument('--H', type=int, default=10)
     parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
-    parser.add_argument('--epochs', type=int, default=2000)
+    parser.add_argument('--epochs', type=int, default=10000)
+    parser.add_argument('--patience',type=int,default=1000)
 
     # inverse temps
-    parser.add_argument('--betasbegin', type=float, default=0.5,
+    parser.add_argument('--betasbegin', type=float, default=2.0,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=2.0,
+    parser.add_argument('--betasend', type=float, default=3.0,
                         help='where beta range should end')
     parser.add_argument('--numbetas', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
-    parser.add_argument('--R', type=int, default=50)
+    parser.add_argument('--R', type=int, default=500)
+    parser.add_argument('--sampling_freq', type=int, default=20)
 
     parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli', 'mandt'])
     # method specific parameters
-    parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8,0.9])
-    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.3,0.6])
+    parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8, 0.9])
+    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.6, 0.8])
 
     parser.add_argument('--taskid', type=int, default=1)
 
@@ -367,105 +378,159 @@ def main():
 
     get_model(args)
 
-    if args.method == 'mandt':
-        stepsize_factor = args.mandt_params[0]
-        stepsize = stepsize_factor * 2 * args.batchsize / args.n
-    if args.method == 'simsekli':
-        alpha = args.simsekli_params[0]
-        num = torch.tensor([alpha - 1])
-        denom = torch.tensor([alpha / 2])
-        c_alpha = torch.exp(torch.lgamma(num)) / (torch.exp(torch.lgamma(denom)) ** 2)
 
-    def train(model, eps, epochs):
+    def train_then_sample(model, beta, alpha, eps, gamma=None, sampling_mode = False, early_stop_epoch=None):
 
-        early_stopping = EarlyStopping(path='taskid{}/checkpoint.pt'.format(args.taskid))
+        if args.method == 'mandt':
+            stepsize_factor = args.mandt_params[0]
+            stepsize = stepsize_factor * 2 * args.batchsize / args.n
+        if args.method == 'simsekli':
+            # alpha = args.simsekli_params[0]
+            num = torch.tensor([alpha - 1])
+            denom = torch.tensor([alpha / 2])
+            c_alpha = torch.exp(torch.lgamma(num)) / (torch.exp(torch.lgamma(denom)) ** 2)
 
-        for epoch in range(1, epochs):
+        early_stopping = EarlyStopping(patience=args.patience,path='taskid{}/checkpoint.pt'.format(args.taskid))
 
-            # adjust step size after each epoch
-            if args.method == 'mandt':
-                stepsize = args.mandt_params[1] * stepsize
-            elif args.method == 'simsekli':
-                stepsize = (eps / (epoch + 1)) ** args.simsekli_params[1]
+        if not sampling_mode:
+        # train
+            early_stop_epoch = args.epochs
+            for epoch in range(0, args.epochs):
 
-            for p in model.parameters():
-
+                # adjust step size after each epoch
                 if args.method == 'mandt':
-
-                    output = model(X)
-                    loss = criterion_sum(output, y) / args.n
-                    loss.backward()
-
-                    nrv = Normal(0.0, 1.0 / np.sqrt(args.batchsize))
-                    blah = nrv.sample(p.shape)
-                    p.data -= stepsize * (p.grad + blah) / beta
-
+                    stepsize = args.mandt_params[1] * stepsize
                 elif args.method == 'simsekli':
+                    stepsize = (eps / (epoch + 1)) ** gamma
 
-                    output = model(X)
-                    loss = criterion_sum(output, y)
-                    loss.backward()
+                for p in model.parameters():
 
-                    symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
-                    p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+                    if args.method == 'mandt':
 
-            model.zero_grad()
+                        output = model(X)
+                        loss = criterion_sum(output, y) / args.n
+                        loss.backward()
 
-            if (epoch + 1) % 200 == 0:
-                print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
-            if torch.isnan(loss):
-                return True
+                        nrv = Normal(0.0, 1.0 / np.sqrt(args.batchsize))
+                        blah = nrv.sample(p.shape)
+                        p.data -= stepsize * (p.grad + blah) / beta
 
-            early_stopping(loss.item(), model)
+                    elif args.method == 'simsekli':
 
-            if early_stopping.early_stop:
-                print("Early stopping")
-                break
+                        output = model(X)
+                        loss = criterion_sum(output, y)
+                        loss.backward()
 
-        # load the last checkpoint with the best model
-        model.load_state_dict(torch.load('taskid{}/checkpoint.pt'.format(args.taskid)))
+                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+                model.zero_grad()
+
+                if (epoch + 1) % 200 == 0:
+                    print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y), baseline_nll))
+
+                if torch.isnan(loss):
+                    return True, None
+
+                early_stopping(loss.item(), model)
+                if early_stopping.early_stop:
+                    print("Early stopping")
+                    # load the last checkpoint with the best model
+                    model.load_state_dict(torch.load('taskid{}/checkpoint.pt'.format(args.taskid)))
+                    early_stop_epoch = epoch
+                    return None, early_stop_epoch
+
+        if sampling_mode:
+
+            sampled_nlls = []
+            sampled_nlls_stepsize = []
+
+            for epoch in range(early_stop_epoch, early_stop_epoch+args.R):
+
+                # adjust step size after each epoch
+                if args.method == 'mandt':
+                    stepsize = args.mandt_params[1] * stepsize
+                elif args.method == 'simsekli':
+                    stepsize = (eps / (epoch + 1)) ** gamma
+
+                for p in model.parameters():
+
+                    if args.method == 'mandt':
+
+                        output = model(X)
+                        loss = criterion_sum(output, y) / args.n
+                        loss.backward()
+
+                        nrv = Normal(0.0, 1.0 / np.sqrt(args.batchsize))
+                        blah = nrv.sample(p.shape)
+                        p.data -= stepsize * (p.grad + blah) / beta
+
+                    elif args.method == 'simsekli':
+
+                        output = model(X)
+                        loss = criterion_sum(output, y)
+                        loss.backward()
+
+                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        p.data -= stepsize * c_alpha * beta * p.grad - (
+                                    stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+
+                model.zero_grad()
+
+                if (epoch + 1) % args.sampling_freq == 0:
+                    print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y),
+                                                                                      baseline_nll))
+
+                if (epoch + 1) % args.sampling_freq == 0:
+                    sampled_nlls += [criterion_sum(model(X), y).detach()]
+                    sampled_nlls_stepsize += [stepsize]
+
+            return sampled_nlls, sampled_nlls_stepsize
 
 
-    nll = np.empty((args.numbetas, args.R))
+
+    avg_nlls_beta = np.empty(args.numbetas)
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
     inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas),axis=0)
+
+
 
     for beta_index in range(0, args.numbetas):
 
         beta = inverse_temp[beta_index]
 
-        # find learning rate
-        print('Pretraining to find learning rate')
+        # find learning rate for beta
+        print('Pretraining to find learning rate for beta {}'.format(beta))
         nan_flg = True
         eps = 1
         while nan_flg is True:
             model = copy.deepcopy(args.init_model)
             eps = eps / 10
-            nan_flg = train(model, eps, args.epochs)
-        print('Finished pre-training to find learning rate, eps = {}'.format(eps))
+            nan_flg, early_stop_epoch = train_then_sample(model, args.betasend, args.simsekli_params[0], eps, args.simsekli_params[1])
+        print('Finished pre-training to find learning rate for beta {}, found eps = {}'.format(beta, eps))
 
-        for r in range(0, args.R):
 
-            print('Training {}/{} ensemble at {}/{} temp'.format(r + 1, args.R, beta_index + 1, args.numbetas))
+        print('Begin training+sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
+        # Training and sampling
+        # model = copy.deepcopy(args.init_model)
+        sampled_nlls, sampled_nlls_stepsize = train_then_sample(model, beta, args.simsekli_params[0], eps, args.simsekli_params[1],sampling_mode=True,early_stop_epoch=early_stop_epoch)
+        print('Finished training+sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
 
-            # Training
-            model = copy.deepcopy(args.init_model)
-            train(model, eps, args.epochs)
+        sampled_nlls = np.array(sampled_nlls)
+        sampled_nlls_stepsize = np.array(sampled_nlls_stepsize)
+        avg_nlls_beta[beta_index] = sum(sampled_nlls*sampled_nlls_stepsize)/sum(sampled_nlls_stepsize)
 
-            # Record nll
-            nll[beta_index, r] = criterion_sum(model(X), y)
+        print('Finished sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
 
-        temp = nll[beta_index,:]
-        plt.hist(temp[~np.isnan(temp)])
+        plt.hist(sampled_nlls[~np.isnan(sampled_nlls)])
         plt.title('nLn(w) at inverse temp {}'.format(beta))
         plt.savefig('taskid{}/nllhist_invtemp{:.2f}.png'.format(args.taskid,beta))
         plt.show()
 
         if beta_index > 0:
-            plot_energy(args, inverse_temp[0:beta_index + 1], nll[0:beta_index + 1, :],savefig=True,savefigname='lsfit_upto_beta{:.2f}'.format(beta_index))
+            plot_energy(args, inverse_temp[0:beta_index + 1], avg_nlls_beta[0:beta_index + 1], savefig=True,savefigname='lsfit_upto_beta{:.2f}'.format(beta_index))
 
-    robust_slope_estimate, ols_slope_estimate = plot_energy(args, inverse_temp, nll, savefig=True, savefigname='lsfit')
-    results = {'invtemp': inverse_temp, 'nll': nll, 'robust RLCT estimate': robust_slope_estimate, 'ols RLCT estimate':ols_slope_estimate}
+    robust_slope_estimate, ols_slope_estimate = plot_energy(args, inverse_temp, avg_nlls_beta, savefig=True, savefigname='lsfit')
+    results = {'invtemp': inverse_temp, 'nll': avg_nlls_beta, 'robust RLCT estimate': robust_slope_estimate, 'ols RLCT estimate':ols_slope_estimate}
     torch.save(results, 'taskid{}/results.pt'.format(args.taskid))
 
 
