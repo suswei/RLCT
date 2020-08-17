@@ -66,9 +66,8 @@ def plot_energy(args, inverse_temp, avg_nlls_beta, savefigname, savefig=False):
     RLCT_estimate = fit[1][0]
 
     # robust ls fit
-    regr = ElasticNet(random_state=0, fit_intercept=True, alpha=1.0)
-    regr.fit(np.expand_dims(inverse_temp, 1), design_y)
-    robust_intercept_estimate = regr.intercept_
+    regr = ElasticNet(random_state=0)
+    regr.fit(np.expand_dims(inverse_temp, 1), avg_nlls_beta)
     # slope_estimate = min(regr.coef_[0],args.w_dim/2)
     robust_slope_estimate = regr.coef_[0]
 
@@ -194,9 +193,6 @@ def get_data(args):
         args.input_dim = args.rr[0]
         args.output_dim = args.rr[1]
         args.H0 = args.rr[2]
-        args.y_std = args.rr[3]
-        args.a_std = args.rr[4]
-        args.b_std = args.rr[5]
 
         a = Normal(0.0, 1.0)
         args.a_params = 0.2 * a.sample((args.input_dim, args.H0))
@@ -208,7 +204,7 @@ def get_data(args):
 
         true_mean = torch.matmul(torch.matmul(X, args.a_params), args.b_params)
         y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
-        y = true_mean + args.y_std * y_rv.sample(torch.Size([args.n]))
+        y = true_mean + 0.1 * y_rv.sample(torch.Size([args.n]))
 
         criterion_sum = nn.MSELoss(reduction='sum')
         baseline_nll = criterion_sum(true_mean, y)
@@ -319,6 +315,7 @@ class EarlyStopping:
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
+
 def main():
 
     # Training settings
@@ -329,9 +326,9 @@ def main():
     parser.add_argument('--dataset', type=str, choices=['tanh', 'rr','tanh_nontrivial','lr'], default='rr')
 
     # data generating parameters
-    parser.add_argument('--rr',  nargs='*', type=float,
-                        help='input_dim, output_dim, H0, y_std, a_std, b_std',
-                        default=[30, 30, 2, 0.1, 0.2, 0.2])
+    parser.add_argument('--rr',  nargs='*', type=int,
+                        help='input_dim, output_dim, H0',
+                        default=[6, 6, 3])
 
     parser.add_argument('--tanh',  nargs='*', type=float,
                         help='unif start, unif end, y_std',
@@ -342,26 +339,26 @@ def main():
                         default=[10, 10, 3, 1.0, 0.1])
 
     # model and training
-    parser.add_argument('--H', type=int, default=10)
+    parser.add_argument('--H', type=int, default=20)
     parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
     parser.add_argument('--epochs', type=int, default=10000)
     parser.add_argument('--patience',type=int,default=1000)
 
     # inverse temps
-    parser.add_argument('--betasbegin', type=float, default=2.0,
+    parser.add_argument('--betasbegin', type=float, default=0.1,
                         help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=3.0,
+    parser.add_argument('--betasend', type=float, default=10.0,
                         help='where beta range should end')
     parser.add_argument('--numbetas', type=int, default=20,
                         help='how many betas should be swept between betasbegin and betasend')
 
-    parser.add_argument('--R', type=int, default=500)
-    parser.add_argument('--sampling_freq', type=int, default=20)
+    parser.add_argument('--R', type=int, default=5000)
+    parser.add_argument('--sampling_freq', type=int, default=100)
 
     parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli', 'mandt'])
     # method specific parameters
     parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8, 0.9])
-    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.6, 0.8])
+    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.6, 0.5])
 
     parser.add_argument('--taskid', type=int, default=1)
 
@@ -371,8 +368,7 @@ def main():
     if not os.path.exists(path):
         os.makedirs(path)
 
-    print(vars(args))
-    torch.save(vars(args), '{}/config.pt'.format(path))
+
 
     X, y, criterion_sum, baseline_nll = get_data(args)
 
@@ -393,8 +389,7 @@ def main():
         early_stopping = EarlyStopping(patience=args.patience,path='taskid{}/checkpoint.pt'.format(args.taskid))
 
         if not sampling_mode:
-        # train
-            early_stop_epoch = args.epochs
+            # train
             for epoch in range(0, args.epochs):
 
                 # adjust step size after each epoch
@@ -423,6 +418,7 @@ def main():
 
                         symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
                         p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+
                 model.zero_grad()
 
                 if (epoch + 1) % 200 == 0:
@@ -436,8 +432,9 @@ def main():
                     print("Early stopping")
                     # load the last checkpoint with the best model
                     model.load_state_dict(torch.load('taskid{}/checkpoint.pt'.format(args.taskid)))
-                    early_stop_epoch = epoch
-                    return None, early_stop_epoch
+                    return False, epoch
+
+            return False, args.epochs
 
         if sampling_mode:
 
@@ -486,7 +483,8 @@ def main():
 
             return sampled_nlls, sampled_nlls_stepsize
 
-
+    print(vars(args))
+    torch.save(vars(args), '{}/config.pt'.format(path))
 
     avg_nlls_beta = np.empty(args.numbetas)
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
@@ -509,17 +507,16 @@ def main():
         print('Finished pre-training to find learning rate for beta {}, found eps = {}'.format(beta, eps))
 
 
-        print('Begin training+sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
+        print('Begin sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
         # Training and sampling
         # model = copy.deepcopy(args.init_model)
         sampled_nlls, sampled_nlls_stepsize = train_then_sample(model, beta, args.simsekli_params[0], eps, args.simsekli_params[1],sampling_mode=True,early_stop_epoch=early_stop_epoch)
-        print('Finished training+sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
+        print('Finished sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
 
         sampled_nlls = np.array(sampled_nlls)
         sampled_nlls_stepsize = np.array(sampled_nlls_stepsize)
         avg_nlls_beta[beta_index] = sum(sampled_nlls*sampled_nlls_stepsize)/sum(sampled_nlls_stepsize)
 
-        print('Finished sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
 
         plt.hist(sampled_nlls[~np.isnan(sampled_nlls)])
         plt.title('nLn(w) at inverse temp {}'.format(beta))
