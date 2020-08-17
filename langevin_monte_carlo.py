@@ -7,6 +7,7 @@ import numpy as np
 from numpy.linalg import inv
 import argparse
 import copy
+import pickle
 
 import torch
 import torch.nn as nn
@@ -195,14 +196,14 @@ def get_data(args):
         args.H0 = args.rr[2]
 
         a = Normal(0.0, 1.0)
-        args.a_params = 0.2 * a.sample((args.input_dim, args.H0))
+        a_params = 0.2 * a.sample((args.input_dim, args.H0))
         b = Normal(0.0, 1.0)
-        args.b_params = 0.2 * b.sample((args.H0, args.output_dim))
+        b_params = 0.2 * b.sample((args.H0, args.output_dim))
         m = MultivariateNormal(torch.zeros(args.input_dim), torch.eye(
             args.input_dim))  # the input_dim=output_dim + 3, output_dim = H (the number of hidden units)
         X = 3.0 * m.sample(torch.Size([args.n]))
 
-        true_mean = torch.matmul(torch.matmul(X, args.a_params), args.b_params)
+        true_mean = torch.matmul(torch.matmul(X, a_params), b_params)
         y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
         y = true_mean + 0.1 * y_rv.sample(torch.Size([args.n]))
 
@@ -484,7 +485,10 @@ def main():
             return sampled_nlls, sampled_nlls_stepsize
 
     print(vars(args))
-    torch.save(vars(args), '{}/config.pt'.format(path))
+    # TODO: pickle load keeps throwing error
+    # with open('{}/config'.format(path), 'wb') as f:
+    #     pickle.dump(vars(args), f)
+
 
     avg_nlls_beta = np.empty(args.numbetas)
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
@@ -532,4 +536,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
