@@ -35,17 +35,17 @@ import itertools
 #               % (taskid, temp['dataset'], temp['n'], temp['batchsize'], temp['prior-std'], temp['y-std'], temp['MC']))
 #
 
+
 def main(taskid):
-    # TODO: some  combintations lead to clearly bad outcomes
+
     taskid = int(taskid[0])
     hyperparameter_config = {
         # 'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
-        'input_dim': [10],
-        'output_dim': [10],
+        'input_dim': [5],
+        'output_dim': [5],
         'H0': [3],
-        'H': [3, 6],
-        'alpha': [1.3, 1.5, 1.7, 2.0],
-        'gamma': [0.5, 0.8, 1.0],
+        'H': [4],
+        'alpha': [1.1,1.6,2.0]
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
@@ -55,9 +55,10 @@ def main(taskid):
               "--taskid %s "
               "--dataset rr "
               "--rr %s %s %s "
+              "--H %s "
               "--method simsekli "
-              "--simsekli-params %s %s"
-              %(taskid, temp['input_dim'],temp['output_dim'],temp['H0'],temp['alpha'], temp['gamma']))
+              "--simsekli-params %s %s %s"
+              %(taskid, temp['input_dim'], temp['output_dim'], temp['H0'], temp['H'],1.1,0.5,2.0))
 
 # def main(taskid):
 #
@@ -78,3 +79,4 @@ def main(taskid):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+

@@ -19,6 +19,7 @@ from torch.distributions.uniform import Uniform
 from scipy.stats import levy_stable
 from sklearn.linear_model import ElasticNet
 
+import seaborn as sns
 from matplotlib import pyplot as plt
 
 
@@ -89,6 +90,41 @@ def plot_energy(args, inverse_temp, avg_nlls_beta, savefigname, savefig=False):
     plt.show()
 
     return robust_slope_estimate, RLCT_estimate
+
+class ToyResLayer(nn.Module):
+    """ Custom Linear layer but mimics a standard linear layer """
+    def __init__(self):
+        super().__init__()
+        aprime = torch.Tensor(1)
+        bprime = torch.Tensor(1)
+        self.aprime = nn.Parameter(aprime)
+        self.bprime = nn.Parameter(bprime)
+        # self.size_in, self.size_out = size_in, size_out
+        # weights = torch.Tensor(size_out, size_in)
+        # self.weights = nn.Parameter(weights)  # nn.Parameter is a Tensor that's a module parameter.
+        # bias = torch.Tensor(size_out)
+        # self.bias = nn.Parameter(bias)
+
+        # initialize aprime, bprime
+        nn.init.uniform_(self.aprime)
+        nn.init.uniform_(self.bprime)
+        # nn.init.kaiming_uniform_(self.weights) # weight init
+        # fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights)
+        # bound = 1 / np.sqrt(fan_in)
+        # nn.init.uniform_(self.bias, -bound, bound)  # bias init
+
+    def forward(self, x):
+        w = (self.aprime ** 3) * (self.aprime - 3*self.bprime + 27*(self.bprime ** 3))
+        return x*w
+
+
+class ToyRes(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ToyResLayer = ToyResLayer()
+
+    def forward(self, x):
+        return self.ToyResLayer(x)
 
 class Logistic(nn.Module):
     def __init__(self, input_dim, bias=True):
@@ -213,7 +249,22 @@ def get_data(args):
     # dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),[args.n, 0, 0])
     # train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
 
+    elif args.dataset == 'toy_res': #completely the same as tanh trivial currently
+
+        m = Uniform(torch.tensor([-1.0]), torch.tensor([1.0]))
+        X = m.sample(torch.Size([args.n]))
+
+        # generate target from N(0,1)
+        y_rv = Normal(0.0, 0.1)  # torch.distributions.normal.Normal(loc, scale) where scale is standard deviation
+        y = 0.01 * y_rv.sample(torch.Size([args.n, 1]))
+
+        args.input_dim = X.shape[1]
+        args.output_dim = y.shape[1]
+        criterion_sum = nn.MSELoss(reduction='sum')
+        baseline_nll = criterion_sum(torch.zeros_like(y), y)
+
     return X,y,criterion_sum, baseline_nll
+
 
 def get_model(args):
 
@@ -263,9 +314,15 @@ def get_model(args):
         if (args.output_dim + args.H) < (args.input_dim + args.H0):  # case 3 in Aoyagi
             args.trueRLCT = (args.H * (args.output_dim - args.H0) + args.input_dim * args.H0) / 2
         if (args.input_dim + args.output_dim) < (args.H + args.H0):  # case 4 in Aoyagi
-            args.trueRLCT = (args.H * (args.input_dim - args.H0) + args.output_dim * args.H0) / 2
+            args.trueRLCT = args.input_dim * args.output_dim / 2
         # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
 
+    elif args.dataset == 'toy_res':
+
+        args.init_model = ToyRes()
+
+        args.w_dim = 2
+        args.trueRLCT = 1
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
@@ -324,12 +381,12 @@ def main():
 
     # dataset
     parser.add_argument('--n', type=int, default=1000)
-    parser.add_argument('--dataset', type=str, choices=['tanh', 'rr','tanh_nontrivial','lr'], default='rr')
+    parser.add_argument('--dataset', type=str, choices=['tanh', 'rr','tanh_nontrivial','lr','toy_res'], default='rr')
 
     # data generating parameters
     parser.add_argument('--rr',  nargs='*', type=int,
                         help='input_dim, output_dim, H0',
-                        default=[6, 6, 3])
+                        default=[10, 10, 3])
 
     parser.add_argument('--tanh',  nargs='*', type=float,
                         help='unif start, unif end, y_std',
@@ -340,17 +397,17 @@ def main():
                         default=[10, 10, 3, 1.0, 0.1])
 
     # model and training
-    parser.add_argument('--H', type=int, default=20)
+    parser.add_argument('--H', type=int, default=6)
     parser.add_argument('--batchsize', type=int, default=10) # TODO: the way we are using Mandt does not actually require batchsize
     parser.add_argument('--epochs', type=int, default=10000)
     parser.add_argument('--patience',type=int,default=1000)
 
     # inverse temps
-    parser.add_argument('--betasbegin', type=float, default=0.1,
-                        help='where beta range should begin')
-    parser.add_argument('--betasend', type=float, default=10.0,
-                        help='where beta range should end')
-    parser.add_argument('--numbetas', type=int, default=20,
+    # parser.add_argument('--betasbegin', type=float, default=5.0,
+    #                     help='where beta range should begin')
+    # parser.add_argument('--betasend', type=float, default=10.0,
+    #                     help='where beta range should end')
+    parser.add_argument('--numbetas', type=int, default=5,
                         help='how many betas should be swept between betasbegin and betasend')
 
     parser.add_argument('--R', type=int, default=5000)
@@ -359,7 +416,7 @@ def main():
     parser.add_argument('--method', default='simsekli', type=str, choices=['simsekli', 'mandt'])
     # method specific parameters
     parser.add_argument('--mandt-params', nargs='*', type=float, help='stepsize factor, stepsize decay', default=[1e-8, 0.9])
-    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, and gamma in (eta/t)^gamma', default=[1.6, 0.5])
+    parser.add_argument('--simsekli-params', nargs='*', type=float, help='alpha, gamma in (eta/t)^gamma, sampling alpha', default=[1.1, 0.5, 2.0])
 
     parser.add_argument('--taskid', type=int, default=1)
 
@@ -417,8 +474,11 @@ def main():
                         loss = criterion_sum(output, y)
                         loss.backward()
 
-                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        # symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=p.shape)
+
                         p.data -= stepsize * c_alpha * beta * p.grad - (stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
+
 
                 model.zero_grad()
 
@@ -441,6 +501,9 @@ def main():
 
             sampled_nlls = []
             sampled_nlls_stepsize = []
+
+            sampled_aprimes = np.array([])
+            sampled_bprimes = np.array([])
 
             for epoch in range(early_stop_epoch, early_stop_epoch+args.R):
 
@@ -468,7 +531,8 @@ def main():
                         loss = criterion_sum(output, y)
                         loss.backward()
 
-                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        # symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=(p.shape[0], p.shape[1]))
+                        symmetric_alpha_stable_draw = levy_stable.rvs(alpha, 0, size=p.shape)
                         p.data -= stepsize * c_alpha * beta * p.grad - (
                                     stepsize ** (1 / alpha)) * symmetric_alpha_stable_draw
 
@@ -477,24 +541,27 @@ def main():
                 if (epoch + 1) % args.sampling_freq == 0:
                     print('Epoch {}: training nll {:.2f}, baseline nll {:.2f}'.format(epoch, criterion_sum(model(X), y),
                                                                                       baseline_nll))
-
-                if (epoch + 1) % args.sampling_freq == 0:
                     sampled_nlls += [criterion_sum(model(X), y).detach()]
                     sampled_nlls_stepsize += [stepsize]
 
-            return sampled_nlls, sampled_nlls_stepsize
+                    if args.dataset == 'toy_res':
+                        sampled_aprimes = np.append(sampled_aprimes, model.ToyResLayer.aprime.data.numpy())
+                        sampled_bprimes = np.append(sampled_bprimes, model.ToyResLayer.bprime.data.numpy())
+
+
+            return sampled_nlls, sampled_nlls_stepsize, sampled_aprimes, sampled_bprimes
 
     print(vars(args))
     # TODO: pickle load keeps throwing error
     # with open('{}/config'.format(path), 'wb') as f:
     #     pickle.dump(vars(args), f)
 
-
     avg_nlls_beta = np.empty(args.numbetas)
     # evenly spaced 1/betaend to 1/betabegin, low temp to high temp, should see increase in nll
+    # inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas),axis=0)
+    args.betasbegin = 1
+    args.betasend = 2.0
     inverse_temp = np.flip(1 / np.linspace(1 / args.betasbegin, 1 / args.betasend, args.numbetas),axis=0)
-
-
 
     for beta_index in range(0, args.numbetas):
 
@@ -510,17 +577,25 @@ def main():
             nan_flg, early_stop_epoch = train_then_sample(model, args.betasend, args.simsekli_params[0], eps, args.simsekli_params[1])
         print('Finished pre-training to find learning rate for beta {}, found eps = {}'.format(beta, eps))
 
-
         print('Begin sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
         # Training and sampling
         # model = copy.deepcopy(args.init_model)
-        sampled_nlls, sampled_nlls_stepsize = train_then_sample(model, beta, args.simsekli_params[0], eps, args.simsekli_params[1],sampling_mode=True,early_stop_epoch=early_stop_epoch)
+        sampled_nlls, sampled_nlls_stepsize, sampled_aprimes, sampled_bprimes = train_then_sample(model, beta, args.simsekli_params[2], eps, args.simsekli_params[1],sampling_mode=True,early_stop_epoch=early_stop_epoch)
         print('Finished sampling at {}/{} temp'.format(beta_index + 1, args.numbetas))
+
+        ax = sns.kdeplot(sampled_aprimes,sampled_bprimes, shade=True, cmap="PuBu")
+        ax.patch.set_facecolor('white')
+        ax.collections[0].set_alpha(0)
+        ax.set_xlabel('$a prime$', fontsize=15)
+        ax.set_ylabel('$b prime$', fontsize=15)
+        plt.xlim(-.5, .5)
+        plt.ylim(-.5, .5)
+        plt.title('beta {}'.format(beta))
+        plt.show()
 
         sampled_nlls = np.array(sampled_nlls)
         sampled_nlls_stepsize = np.array(sampled_nlls_stepsize)
         avg_nlls_beta[beta_index] = sum(sampled_nlls*sampled_nlls_stepsize)/sum(sampled_nlls_stepsize)
-
 
         plt.hist(sampled_nlls[~np.isnan(sampled_nlls)])
         plt.title('nLn(w) at inverse temp {}'.format(beta))
