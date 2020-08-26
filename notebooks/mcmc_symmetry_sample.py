@@ -22,7 +22,7 @@ TraceReturns = collections.namedtuple('TraceReturns', ['target_log_prob',
                                                           'step_size'])
 
 # For running chains in parallel
-def run_chains(beta, beta_index, dataset_index, samples, timers, datasets, args):
+def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates, args):
     import tensorflow as tf
     import mcmc_symmetry
     
@@ -155,14 +155,26 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, datasets, args)
     post_time = time.time()
     delta_time = post_time - pre_time
     
-    samples[(beta_index,dataset_index)] = [fine_chain, fine_trace]
-    datasets[(beta_index,dataset_index)] = [X_train, y_train]
-    timers[(beta_index,dataset_index)] = delta_time
+    # Process to get EnLn estimates
+    log_prob_noprior = partial(
+        mcmc_symmetry.joint_log_prob_fn, center, None, X_train, y_train, 1.0, nl
+    )
+    
+    # nL_n(w) = - log_prob_noprior(*w)
+    n_Ln_samples = []
+
+    for i in range(len(fine_chain)):
+      w = [q[i] for q in fine_chain]
+      n_Ln_samples.append(-log_prob_noprior(*w))
+    
+    key = (beta_index, dataset_index)
+    EnLn_estimates[key] = np.mean(n_Ln_samples)    
+    samples[key] = [fine_chain, fine_trace]
+    timers[key] = delta_time
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="RLCT_HMC_symmetric")
     parser.add_argument("--experiment-id", nargs="?")
-    parser.add_argument("--load-data", nargs="?", default=False, type=bool)
     parser.add_argument("--gpu-memory", nargs="?", default=128, type=int)
     parser.add_argument("--num-training-sets", nargs="?", default=2, type=int)
     parser.add_argument("--save-prefix", nargs="?")
@@ -207,7 +219,7 @@ if __name__ == '__main__':
     manager = Manager()
     samples = manager.dict()
     timers = manager.dict()
-    datasets = manager.dict()
+    EnLn_estimates = manager.dict()
     jobs = []
 
     for i in range(args.num_betas):
@@ -219,15 +231,9 @@ if __name__ == '__main__':
             # Attempt to load from disk
             filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
 
-            if os.path.isfile(filename) and args.load_data:
-                with open(filename, 'rb') as handle:
-                    fine_chain, fine_trace = pickle.load(handle)
-                samples[(i,j)] = [fine_chain, fine_trace]
-                timers[(i,j)] = 0
-                print("         Loaded chain from disk")
-            else:
+            if not os.path.isfile(filename):
                 print("         Spawning job...")
-                p = Process(target=run_chains, args=(betas[i], i, j, samples, timers, datasets, args))
+                p = Process(target=run_chains, args=(betas[i], i, j, samples, timers, EnLn_estimates, args))
                 jobs.append(p)
                 p.start()
     
@@ -240,31 +246,40 @@ if __name__ == '__main__':
     args_filename = args.save_prefix + '/' + args.experiment_id + '-args.pickle'
     with open(args_filename, 'wb') as handle:
         pickle.dump(args, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        
+    
+    num_failures = 0
+    
     for i in range(args.num_betas):
       b = betas[i]
-      print("Beta [" + str(i) + "/" + str(args.num_betas) + "] " + str(b))
+      print("Beta [" + str(i+1) + "/" + str(args.num_betas) + "] " + str(b))
       
       for j in range(args.num_training_sets):
-        print("       Dataset [" + str(j) + "/" + str(args.num_training_sets) + "]")
-        sample_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
-        dataset_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '-train.pickle'
+        print("       Dataset [" + str(j+1) + "/" + str(args.num_training_sets) + "]")
         
-        # Save this chain to disk
-        with open(sample_filename, 'wb') as handle:
-          pickle.dump(samples[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
-          print("         Saved chain to disk")
+        if( (i,j) not in samples ):
+            print("         ERROR: key did not exist")
+            num_failures += 1
+        else:
+            sample_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
+            EnLn_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '-estimate.pickle'
+        
+            # Save this chain to disk
+            with open(sample_filename, 'wb') as handle:
+              pickle.dump(samples[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
+              print("         Saved chain to disk")
           
-        with open(dataset_filename, 'wb') as handle:
-          pickle.dump(datasets[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
-          print("         Saved dataset to disk")
+            with open(EnLn_filename, 'wb') as handle:
+              pickle.dump(EnLn_estimates[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
+              print("         Saved EnLn estimate to disk")
           
-        print("         Time taken (s):", timers[(i,j)])
+            print("         Time taken (s):", timers[(i,j)])
 
-        fine_chain, fine_trace = samples[(i,j)]
+            fine_chain, fine_trace = samples[(i,j)]
         
-        print("         Acceptance rate:", fine_trace.is_accepted[-args.num_samples:].numpy().mean())
-        print("         Step size:", np.asarray(fine_trace.step_size[-args.num_samples:]).mean())
-        num_divergences = fine_trace.has_divergence[-args.num_samples:].numpy().sum()
-        print("         Divergences: {0}/{1} = {2}".format(num_divergences,args.num_samples,num_divergences/args.num_samples))  
+            print("         Acceptance rate:", fine_trace.is_accepted[-args.num_samples:].numpy().mean())
+            print("         Step size:", np.asarray(fine_trace.step_size[-args.num_samples:]).mean())
+            num_divergences = fine_trace.has_divergence[-args.num_samples:].numpy().sum()
+            print("         Divergences: {0}/{1} = {2}".format(num_divergences,args.num_samples,num_divergences/args.num_samples))  
 # https://stackoverflow.com/questions/50937362/multiprocessing-on-python-3-jupyter
+
+    print("\nNumber of failed beta-dataset pairs: " + str(num_failures))
