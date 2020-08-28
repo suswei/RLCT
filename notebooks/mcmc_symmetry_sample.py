@@ -9,9 +9,7 @@ from functools import partial
 import collections
 
 import numpy as np
-
-import multiprocessing
-from multiprocessing import Process, Manager
+import ray
 
 TraceReturns = collections.namedtuple('TraceReturns', ['target_log_prob',
                                                        'leapfrogs_taken',
@@ -21,8 +19,9 @@ TraceReturns = collections.namedtuple('TraceReturns', ['target_log_prob',
                                                         'is_accepted',
                                                           'step_size'])
 
-# For running chains in parallel
-def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates, args):
+# For using Ray with TensorFlow see https://docs.ray.io/en/latest/using-ray-with-tensorflow.html
+@ray.remote(num_gpus=0.01)
+def run_chains(beta, args):
     import tensorflow as tf
     import mcmc_symmetry
     
@@ -64,7 +63,7 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates,
             pkr.inner_results.inner_results.is_accepted,
             pkr.inner_results.inner_results.step_size,
         )
-
+        
     def run_nuts(
         target_log_prob_fn,
         inits,
@@ -107,11 +106,6 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates,
         )
         return res
 
-    run_nuts_opt = tf.function(run_nuts,autograph=False,experimental_compile=True)
-
-    # NOTE: to get XLA to work I needed to make a symlink
-    # https://github.com/google/jax/issues/989
-
     true_dist_state = mcmc_symmetry.true_distribution(args.num_hidden_true,args.num_hidden)
 
     def swish(X):
@@ -125,6 +119,7 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates,
     true_network = mcmc_symmetry.build_network(true_dist_state[::2],
                                  true_dist_state[1::2], nl)
 
+    # Generating training data
     X_train, y_train = mcmc_symmetry.generate_data(args.num_data, 
                                                     true_network, 
                                                     args.x_max)
@@ -139,16 +134,26 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates,
 
     weight_prior = tfd.Normal(0.0, args.prior_sd)
 
-    logp = partial(mcmc_symmetry.joint_log_prob_fn, center, weight_prior,
-                        X_train, y_train, beta, nl)
+    # NOTE: to get XLA to work I needed to make a symlink
+    # https://github.com/google/jax/issues/989
 
-    center_nuts = [tf.expand_dims(x,axis=0) for x in center]
+    if( args.use_exchange ):
+        run_nuts_opt = tf.function(run_nuts_emc,autograph=False,experimental_compile=True)
+        joint_log_prob_fn = mcmc_symmetry.joint_log_prob_fn_emc
+        center_mc = center
+    else:
+        run_nuts_opt = tf.function(run_nuts,autograph=False,experimental_compile=True)
+        joint_log_prob_fn = mcmc_symmetry.joint_log_prob_fn
+        center_mc = [tf.expand_dims(x,axis=0) for x in center]
+
+    logp = partial(joint_log_prob_fn, center, weight_prior,
+                        X_train, y_train, beta, nl)
 
     pre_time = time.time()
   
     fine_chain, fine_trace = run_nuts_opt(
         logp,
-        center_nuts,
+        center_mc,
         num_burnin_steps=args.num_warmup,
         num_results=args.num_samples)
 
@@ -166,11 +171,8 @@ def run_chains(beta, beta_index, dataset_index, samples, timers, EnLn_estimates,
     for i in range(len(fine_chain)):
       w = [q[i] for q in fine_chain]
       n_Ln_samples.append(-log_prob_noprior(*w))
-    
-    key = (beta_index, dataset_index)
-    EnLn_estimates[key] = np.mean(n_Ln_samples)    
-    samples[key] = [fine_chain, fine_trace]
-    timers[key] = delta_time
+
+    return fine_chain, fine_trace, delta_time, np.mean(n_Ln_samples)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="RLCT_HMC_symmetric")
@@ -184,12 +186,14 @@ if __name__ == '__main__':
     parser.add_argument("--num-warmup", nargs='?', default=30000, type=int)
     parser.add_argument("--num-data", nargs='?', default=1000, type=int)
     parser.add_argument("--num-hidden", nargs='?', default=4, type=int)
-
+    parser.add_argument("--use-exchange", dest='use_exchange', action='store_true')
     parser.add_argument("--num-hidden-true", nargs='?', default=0, type=int)
     parser.add_argument("--prior-sd", nargs='?', default=1.0, type=float)
     parser.add_argument("--x-max", nargs='?', default=1, type=int)
     parser.add_argument("--target-accept-prob", nargs='?', default=0.8, type=float)
     parser.add_argument("--num-betas", default=8, type=int)
+    parser.add_argument("--num-temps",default=6,type=int)
+    parser.set_defaults(use_exchange=False)
 
     # old mc_num_results = num_samples
     # old mc_burnin_steps = num_warmup
@@ -213,73 +217,40 @@ if __name__ == '__main__':
     # n = args.num_data
     betas = np.linspace(1 / np.log(args.num_data) * (1 - 1 / np.sqrt(2 * np.log(args.num_data))),
                                      1 / np.log(args.num_data) * (1 + 1 / np.sqrt(2 * np.log(args.num_data))),  args.num_betas)
-                                     
-    multiprocessing.set_start_method('spawn') # seems necessary to get multiprocessing to work well with TF (https://github.com/tensorflow/tensorflow/issues/5448)
+                       
+    # For Ray basics: https://docs.ray.io/en/latest/walkthrough.html
+    ray.init()
+    jobs = [(run_chains.remote(betas[i],args),i,j) for i in range(args.num_betas) 
+                                            for j in range(args.num_training_sets)]
+
+    for (obj_ref, i,j) in jobs:
+        fine_chain, fine_trace, delta_time, n_Ln_mean = ray.get(obj_ref)    
     
-    manager = Manager()
-    samples = manager.dict()
-    timers = manager.dict()
-    EnLn_estimates = manager.dict()
-    jobs = []
-
-    for i in range(args.num_betas):
-        print("Beta [" + str(i+1) + "/" + str(args.num_betas) + "] " + str(betas[i]))
-
-        for j in range(args.num_training_sets):
-            print("       Dataset [" + str(j+1) + "/" + str(args.num_training_sets) + "]")
-
-            # Attempt to load from disk
-            filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
-
-            if not os.path.isfile(filename):
-                print("         Spawning job...")
-                p = Process(target=run_chains, args=(betas[i], i, j, samples, timers, EnLn_estimates, args))
-                jobs.append(p)
-                p.start()
-    
-    for p in jobs:
-        p.join()
+        print("Beta [" + str(i+1) + "/" + str(args.num_betas) + "] Dataset [" + str(j+1) + "/" + str(args.num_training_sets) + "]")
+        sample_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
+        EnLn_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '-estimate.pickle'
+        time_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '-time.pickle'
         
-    # Post processing  
-    print("\n[ Post-processing ]\n")
-    
+        # Save this chain to disk
+        with open(sample_filename, 'wb') as handle:
+            pickle.dump([fine_chain,fine_trace], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("         Saved chain to disk")
+
+        with open(EnLn_filename, 'wb') as handle:
+            pickle.dump(n_Ln_mean, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("         Saved EnLn estimate to disk")
+            
+        with open(time_filename, 'wb') as handle:
+            pickle.dump(delta_time, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print("         Time taken (s):", delta_time)
+        print("         Acceptance rate:", fine_trace.is_accepted[-args.num_samples:].numpy().mean())
+        print("         Step size:", np.asarray(fine_trace.step_size[-args.num_samples:]).mean())
+        num_divergences = fine_trace.has_divergence[-args.num_samples:].numpy().sum()
+        print("         Divergences: {0}/{1} = {2}".format(num_divergences,args.num_samples,num_divergences/args.num_samples))  
+
     args_filename = args.save_prefix + '/' + args.experiment_id + '-args.pickle'
     with open(args_filename, 'wb') as handle:
         pickle.dump(args, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
-    num_failures = 0
-    
-    for i in range(args.num_betas):
-      b = betas[i]
-      print("Beta [" + str(i+1) + "/" + str(args.num_betas) + "] " + str(b))
-      
-      for j in range(args.num_training_sets):
-        print("       Dataset [" + str(j+1) + "/" + str(args.num_training_sets) + "]")
-        
-        if( (i,j) not in samples ):
-            print("         ERROR: key did not exist")
-            num_failures += 1
-        else:
-            sample_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
-            EnLn_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '-estimate.pickle'
-        
-            # Save this chain to disk
-            with open(sample_filename, 'wb') as handle:
-              pickle.dump(samples[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
-              print("         Saved chain to disk")
-          
-            with open(EnLn_filename, 'wb') as handle:
-              pickle.dump(EnLn_estimates[(i,j)], handle, protocol=pickle.HIGHEST_PROTOCOL)
-              print("         Saved EnLn estimate to disk")
-          
-            print("         Time taken (s):", timers[(i,j)])
-
-            fine_chain, fine_trace = samples[(i,j)]
-        
-            print("         Acceptance rate:", fine_trace.is_accepted[-args.num_samples:].numpy().mean())
-            print("         Step size:", np.asarray(fine_trace.step_size[-args.num_samples:]).mean())
-            num_divergences = fine_trace.has_divergence[-args.num_samples:].numpy().sum()
-            print("         Divergences: {0}/{1} = {2}".format(num_divergences,args.num_samples,num_divergences/args.num_samples))  
-# https://stackoverflow.com/questions/50937362/multiprocessing-on-python-3-jupyter
-
-    print("\nNumber of failed beta-dataset pairs: " + str(num_failures))
+    ray.shutdown()
