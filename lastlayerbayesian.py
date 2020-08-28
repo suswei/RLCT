@@ -12,13 +12,12 @@ from main import *
 
 plt = matplotlib.pyplot
 
+
 # dataset
+def get_data(args):
 
-def get_data(n, args):
-
-    # The splitting ratio of training set, validation set, testing set is 0.7:0.15:0.15
-    train_size = n
-    valid_size = int(n * 0.5)
+    train_size = args.n
+    valid_size = int(args.n * 0.5)
     test_size = 10000
 
     a = Normal(0.0, 1.0)
@@ -32,6 +31,8 @@ def get_data(n, args):
     y_rv = MultivariateNormal(torch.zeros(args.output_dim), torch.eye(args.output_dim))
     y = true_mean + 0.1 * y_rv.sample(torch.Size([train_size+valid_size+test_size]))
 
+    baseline = (torch.norm(y - true_mean, dim=1)**2).mean()
+    
     dataset_train, dataset_valid, dataset_test = torch.utils.data.random_split(TensorDataset(X, y),
                                                                                [train_size, valid_size, test_size])
 
@@ -39,8 +40,7 @@ def get_data(n, args):
     valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True)
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True)
 
-
-    return train_loader, valid_loader, test_loader
+    return train_loader, valid_loader, test_loader, baseline
 
 
 # model
@@ -72,13 +72,13 @@ class Model(nn.Module):
 
 
 # train module
-def map_train(args, X_train, Y_train, X_test, Y_test):
+def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
 
     n, input_dim = X_train.shape
     n, output_dim = Y_train.shape
 
     model = Model(input_dim, output_dim, args.feature_map_hidden, args.H)
-    opt = optim.SGD(model.parameters(), lr=1e-5, momentum=0.9, weight_decay=5e-4)
+    opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
 
     for it in range(5000):
         model.train()
@@ -92,21 +92,23 @@ def map_train(args, X_train, Y_train, X_test, Y_test):
             model.eval()
             ytest_pred = model(X_test).squeeze()
             test_loss = (torch.norm(ytest_pred - Y_test, dim=1)**2).mean()
-            print('loss: {:.3f}, test loss: {:.3f}'.format(l.item(),test_loss.item()))
+            print('negative log prob loss: train {:.3f}, test {:.3f}, baseline {:.3f}'.format(l.item(), test_loss.item(),baseline))
 
     return model
 
 
-# log p(y_i |x_i, D_n) on test set
-def compute_predictive_dist(X_test, Y_test, last_layer_samples):
+def neg_log_prob_posterior_predictive(X_test, Y_test, last_layer_samples):
+# last_layer_samples contains w_1,w_2,...
+# approximates 1/n' \sum_{i=1}^n' -log p(y_i |x_i, D_n) 
 
-    pred_logprob = 0
+    pred_prob = 0
+    output_dim = Y_test.shape[1]
     for param_dict in last_layer_samples:
 
         mean = torch.matmul(torch.matmul(X_test, param_dict['a']), param_dict['b'])
-        pred_logprob -= torch.norm(Y_test-mean, dim=1)**2 / 2
+        pred_prob += (2*np.pi)**(-output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-mean, dim=1)**2)
 
-    return pred_logprob.mean()/len(last_layer_samples)
+    return -torch.log(pred_prob/len(last_layer_samples)).mean()
 
 
 def posterior_sample(args, train_loader, test_loader):
@@ -125,9 +127,31 @@ def posterior_sample(args, train_loader, test_loader):
     return list_of_param_dicts
 
 
+def lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test,Y_test):
+    
+    transformed_X_train = model.feature_map(X_train)
+    transformed_X_valid = model.feature_map(X_valid)
+    transformed_X_test = model.feature_map(X_test)
+
+    transformed_train_loader = torch.utils.data.DataLoader(
+        TensorDataset(Tensor(transformed_X_train), torch.as_tensor(Y_train, dtype=torch.long)),
+        batch_size=args.batchsize, shuffle=True)
+    transformed_valid_loader = torch.utils.data.DataLoader(
+        TensorDataset(Tensor(transformed_X_valid), torch.as_tensor(Y_valid, dtype=torch.long)), 
+        batch_size=args.batchsize, shuffle=True)
+
+    last_layer_samples = posterior_sample(args, transformed_train_loader, transformed_valid_loader)
+    return neg_log_prob_posterior_predictive(transformed_X_test, Y_test, last_layer_samples)
+    
+    
+# def lastlayerlaplace():
+    
+    
 def main():
 
     parser = argparse.ArgumentParser(description='last layer Bayesian')
+
+    parser.add_argument('--taskid', type=int, default=1)
 
     # Data
     parser.add_argument('--input-dim', type=int, default=20)
@@ -135,7 +159,7 @@ def main():
     parser.add_argument('--dataset', type=str, default='reducedrank_synthetic')
 
     # Model
-    parser.add_argument('--feature-map-hidden',type=int,default=10)
+    parser.add_argument('--feature-map-hidden',type=int,default=20)
     parser.add_argument('--H', type=int, default=5, help='hidden units in final reduced regression layers')
 
     # Approximate Bayesian inference
@@ -149,32 +173,32 @@ def main():
     parser.add_argument('--pretrainDepochs', type=int, default=100,
                         help='number of epochs to pretrain discriminator')
 
-    parser.add_argument('--trainDepochs', type=int, default=50,
+    parser.add_argument('--trainDepochs', type=int, default=10,
                         help='number of epochs to train discriminator for each minibatch update of generator')
 
     parser.add_argument('--n_hidden_D', type=int, default=128,
                         help='number of hidden units in discriminator D')
 
-    parser.add_argument('--num_hidden_layers_D', type=int, default=1,
+    parser.add_argument('--num_hidden_layers_D', type=int, default=2,
                         help='number of hidden layers in discriminatror D')
 
     parser.add_argument('--n_hidden_G', type=int, default=128,
                         help='number of hidden units in generator G')
 
-    parser.add_argument('--num_hidden_layers_G', type=int, default=1,
+    parser.add_argument('--num_hidden_layers_G', type=int, default=2,
                         help='number of hidden layers in generator G')
 
     parser.add_argument('--lr_primal', type=float,  default=0.01, metavar='LR',
                         help='primal learning rate (default: 0.01)')
 
-    parser.add_argument('--lr_dual', type=float, default=0.005, metavar='LR',
+    parser.add_argument('--lr_dual', type=float, default=0.001, metavar='LR',
                         help='dual learning rate (default: 0.01)')
 
     # averaging
-    parser.add_argument('--MCs', type=int, default=5,
+    parser.add_argument('--MCs', type=int, default=20,
                         help='number of times to split into train-test')
 
-    parser.add_argument('--R', type=int, default=200,
+    parser.add_argument('--R', type=int, default=500,
                         help='number of MC draws from approximate posterior (default:200)')
 
     parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -188,7 +212,8 @@ def main():
     args.epsilon_dim = args.H*(args.input_dim + args.output_dim)
     args.w_dim = args.H*(args.input_dim + args.output_dim)
 
-    avg_bayes_gen_err = np.array([])
+    avg_lastlayerbayes_gen_err = np.array([])
+    # avg_lastlayerlaplace_gen_err = np.array([])
     avg_map_gen_err = np.array([])
     n_range = np.array([100, 250, 500, 1000])
     # n_range = np.array([100, 250])
@@ -196,13 +221,14 @@ def main():
     for n in n_range:
 
         map_gen_err = np.empty(args.MCs)
-        bayes_gen_err = np.empty(args.MCs)
-
+        lastlayerbayes_gen_err = np.empty(args.MCs)
+        # lastlayerlaplace_gen_err = np.empty(args.MCs)
+        
         args.n = n
 
         for mc in range(0, args.MCs):
 
-            train_loader, valid_loader, test_loader = get_data(n, args)
+            train_loader, valid_loader, test_loader, baseline = get_data(args)
 
             X_train = train_loader.dataset[:][0]
             Y_train = train_loader.dataset[:][1]
@@ -211,9 +237,10 @@ def main():
             X_test = test_loader.dataset[:][0]
             Y_test = test_loader.dataset[:][1]
 
-            model = map_train(args, X_train, Y_train, X_test, Y_test)
-            map_logprob_test = -torch.norm(Y_test - model(X_test), dim=1) ** 2 / 2
-            map_gen_err[mc] = -map_logprob_test.mean()
+            model = map_train(args, X_train, Y_train, X_test, Y_test, baseline)
+            
+            model.eval()
+            map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean()
 
             Bmap = list(model.parameters())[-1]
             Amap = list(model.parameters())[-2]
@@ -221,44 +248,38 @@ def main():
             trueRLCT = theoretical_RLCT('rr', params)
             print('true RLCT {}'.format(trueRLCT))
 
-            transformed_X_train = model.feature_map(X_train)
-            transformed_X_test = model.feature_map(X_test)
+            lastlayerbayes_gen_err[mc] = lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test)
+            # lastlayerlaplace_gen_err[mc] = lastlayerlaplace()
 
-            temp_train = TensorDataset(Tensor(transformed_X_train), torch.as_tensor(Y_train, dtype=torch.long))
-            new_trainloader = torch.utils.data.DataLoader(temp_train, batch_size=args.batchsize, shuffle=True)
-
-            temp_test = TensorDataset(Tensor(transformed_X_test), torch.as_tensor(Y_test, dtype=torch.long))
-            new_testloader = torch.utils.data.DataLoader(temp_test, batch_size=args.batchsize, shuffle=True)
-
-            last_layer_samples = posterior_sample(args, new_trainloader, new_testloader)
-            bayes_logprob_test = compute_predictive_dist(transformed_X_test, Y_test, last_layer_samples)
-            bayes_gen_err[mc] = -bayes_logprob_test
-
-            print('gen error without entropy term: map {}, bayes last layer {}'.format(map_gen_err[mc], bayes_gen_err[mc]))
+            print('n = {}, mc {}, gen error (without entropy term): map {}, bayes last layer {}'.format(n, mc, map_gen_err[mc], lastlayerbayes_gen_err[mc]))
 
             # true_rlct[mc] = get_true_rlct()
             # print('last layer reduced rank {}: mc {}: Bg {} true rlct {}'.format(H,mc, Bg[mc], true_rlct[mc]))
 
-        print('average generalisation error (without entropy term): map {}, bayes {}'.format(map_gen_err.mean(),bayes_gen_err.mean()))
+        print('average gen error (without entropy term): MAP {}, bayes {}'.format(map_gen_err.mean(),lastlayerbayes_gen_err.mean()))
         # print('hat RLCT/n: {}'.format(rlct.mean() / n))
         # results.append({'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ n})
 
-        avg_bayes_gen_err = np.append(avg_bayes_gen_err, bayes_gen_err.mean())
+        # avg_lastlayerlaplace_gen_err = np.append(avg_lastlayerlaplace_gen_err,lastlayerbayes_gen_err.mean())
+        avg_lastlayerbayes_gen_err = np.append(avg_lastlayerbayes_gen_err, lastlayerbayes_gen_err.mean())
         avg_map_gen_err = np.append(avg_map_gen_err, map_gen_err.mean())
 
-    print('avg bayes gen err {}'.format(avg_bayes_gen_err))
-    print('avg_map_gen_err{}'.format(avg_map_gen_err))
+    print('avg bayes gen err {}'.format(avg_lastlayerbayes_gen_err))
+    print('avg MAP gen err{}'.format(avg_map_gen_err))
 
-    # ols_model = OLS(avg_bayes_gen_err, add_constant(1 / n_range)).fit()
-    # ols_intercept_estimate = ols_model.params[0]
-    # ols_slope_estimate = ols_model.params[1]
+    ols_model = OLS(avg_lastlayerbayes_gen_err, add_constant(1 / n_range)).fit()
+    ols_intercept_estimate = ols_model.params[0]
+    ols_slope_estimate = ols_model.params[1]
+    print('estimated RLCT {}'.format(ols_intercept_estimate))
     #
-    # plt.scatter(n_range, avg_bayes_gen_err, c='r', label='En G(n) for last layer Bayes predictive')
-    # plt.scatter(n_range, avg_map_gen_err, c='g', label='En G(n) for map')
-    # plt.plot(1 / n_range, ols_intercept_estimate + ols_slope_estimate * 1 / n_range, 'b-', label='ols')
-    # plt.title('slope {}, true RLCT {}'.format(ols_slope_estimate, trueRLCT))
-    # plt.legend()
-    # plt.show()
+    plt.scatter(1/n_range, avg_lastlayerbayes_gen_err, c='r', label='En G(n) for last layer Bayes predictive')
+    plt.scatter(1/n_range, avg_map_gen_err, c='g', label='En G(n) for MAP')
+    plt.plot(1 / n_range, ols_intercept_estimate + ols_slope_estimate / n_range, 'b-', label='ols')
+    plt.xlabel('1/n')
+    plt.title('slope {}, true RLCT {}'.format(ols_slope_estimate, trueRLCT))
+    plt.legend()
+    plt.savefig('taskid{}.png'.format(args.taskid))
+    plt.show()
 
 
 if __name__ == "__main__":

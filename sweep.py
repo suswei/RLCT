@@ -41,24 +41,18 @@ def main(taskid):
     taskid = int(taskid[0])
     hyperparameter_config = {
         # 'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
-        'input_dim': [5],
-        'output_dim': [5],
-        'H0': [3],
-        'H': [4],
-        'alpha': [1.1,1.6,2.0]
+        'input_dim': [10, 20],
+        'output_dim': [10, 20],
+        'feature-map-hidden': [10, 20],
+        'H': [5, 10],
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 langevin_monte_carlo.py "
-              "--taskid %s "
-              "--dataset rr "
-              "--rr %s %s %s "
-              "--H %s "
-              "--method simsekli "
-              "--simsekli-params %s %s %s"
-              %(taskid, temp['input_dim'], temp['output_dim'], temp['H0'], temp['H'],1.1,0.5,2.0))
+    os.system("python3 lastlayerbayesian.py "
+              "--taskid %s --input-dim %s --output-dim %s --feature-map-hidden %s --H %s"
+              %(taskid, temp['input_dim'],temp['output_dim'],temp['feature-map-hidden'],temp['H']))
 
 # def main(taskid):
 #

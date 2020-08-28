@@ -246,7 +246,8 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         loss = nn.MSELoss(reduction='sum')
         mean = torch.matmul(torch.matmul(x, param_dictionary['a']), param_dictionary['b'])
 
-        return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        # return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        return loss(y, mean)
 
     elif args.dataset == 'ffrelu_synthetic':
 
