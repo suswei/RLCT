@@ -1,7 +1,7 @@
 from __future__ import print_function
 
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
+# from plotly.subplots import make_subplots
+# import plotly.graph_objects as go
 import os
 import argparse
 import random

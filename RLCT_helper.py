@@ -11,6 +11,30 @@ from statsmodels.tools.tools import add_constant
 
 import models
 
+def theoretical_RLCT(model,params):
+    if model == 'rr':
+        input_dim, output_dim, H0, H = params
+        # determining theoretical RLCT
+        cond1 = (output_dim + H0) <= (input_dim + H)
+        cond2 = (input_dim + H0) <= (output_dim + H)
+        cond3 = (H + H0) <= (input_dim + output_dim)
+        if cond1 and cond2 and cond3:
+            trueRLCT = (2 * (H + H0) * (input_dim + output_dim)
+                             - (input_dim - output_dim) * (input_dim - output_dim)
+                             - (H + H0) * (H + H0)) / 8  # case 1a in Aoygai
+            if (input_dim + output_dim + H + H0) % 2 == 1:  # case 1b in Aoyagi
+                trueRLCT = (2 * (H + H0) * (input_dim + output_dim) - (
+                        input_dim - output_dim) * (input_dim - output_dim) - (H + H0) * (
+                                         H + H0) + 1) / 8
+        if (input_dim + H) < (output_dim + H0):  # case 2 in Aoyagi
+            trueRLCT = (H * (input_dim - H0) + output_dim * H0) / 2
+        if (output_dim + H) < (input_dim + H0):  # case 3 in Aoyagi
+            trueRLCT = (H * (output_dim - H0) + input_dim * H0) / 2
+        if (input_dim + output_dim) < (H + H0):  # case 4 in Aoyagi
+            trueRLCT = input_dim * output_dim / 2
+        # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
+
+    return trueRLCT
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
 
