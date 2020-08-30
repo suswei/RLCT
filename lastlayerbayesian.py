@@ -30,13 +30,13 @@ def get_data(args):
     # training +valid data
     X = X_rv.sample(torch.Size([train_size+valid_size]))
     true_mean = torch.matmul(torch.matmul(X, a_params), b_params)
-    y = true_mean + 0.1 * y_rv.sample(torch.Size([train_size+valid_size]))
+    y = true_mean + y_rv.sample(torch.Size([train_size+valid_size]))
     dataset_train, dataset_valid = torch.utils.data.random_split(TensorDataset(X, y),[train_size,valid_size])
 
-    # testing data -- change X distribution
-    X = 3.0*X_rv.sample(torch.Size([test_size]))
+    # testing data -- change X distribution?
+    X = X_rv.sample(torch.Size([test_size]))
     true_mean = torch.matmul(torch.matmul(X, a_params), b_params)
-    y = true_mean + 0.1 * y_rv.sample(torch.Size([test_size]))
+    y = true_mean + y_rv.sample(torch.Size([test_size]))
     dataset_test = TensorDataset(X, y)
     baseline = (torch.norm(y - true_mean, dim=1)**2).mean()
     gen_err_baseline = -torch.log((2 * np.pi) ** (-args.output_dim / 2) * torch.exp(
@@ -63,13 +63,12 @@ class Model(nn.Module):
             # nn.BatchNorm1d(h),
             nn.ReLU(),
             nn.Linear(h, input_dim),
-            # nn.BatchNorm1d(input_dim),
-            # nn.ReLU(),
         )
 
         self.clf = nn.Sequential(
             nn.Linear(input_dim, rr_H, bias=False),
             nn.Linear(rr_H, output_dim, bias=False)
+            # nn.Linear(input_dim,output_dim,bias=False)
         )
 
     def forward(self, x):
@@ -103,37 +102,48 @@ def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
     return model
 
 
-def neg_log_prob_posterior_predictive(X_test, Y_test, last_layer_samples):
-# last_layer_samples contains w_1,w_2,...
-# approximates 1/n' \sum_{i=1}^n' -log p(y_i |x_i, D_n) 
-
-    pred_prob = 0
-    output_dim = Y_test.shape[1]
-    for param_dict in last_layer_samples:
-
-        mean = torch.matmul(torch.matmul(X_test, param_dict['a']), param_dict['b'])
-        pred_prob += (2*np.pi)**(-output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-mean, dim=1)**2)
-
-    return -torch.log(pred_prob/len(last_layer_samples)).mean()
-
-
-def posterior_sample(args, train_loader, test_loader):
+def posterior_sample(args, train_loader, test_loader, transformed_X_test, Y_test):
 
     mc = 1
     beta_index = 0
     args.betas = [1.0]
     saveimgpath = None
 
-    G = train_implicitVI(train_loader, test_loader, args, mc, beta_index, saveimgpath)
+    if args.posterior_method == 'ivi':
+        G = train_implicitVI(train_loader, test_loader, args, mc, beta_index, saveimgpath)
+        eps = torch.randn(args.R, args.epsilon_dim)
+        sampled_weights = G(eps)
+        list_of_param_dicts = weights_to_dict(args, sampled_weights)
 
-    eps = torch.randn(args.R, args.epsilon_dim)
-    sampled_weights = G(eps)
-    list_of_param_dicts = weights_to_dict(args, sampled_weights)
+        pred_prob = 0
+        output_dim = transformed_X_test.shape[1]
+        for param_dict in list_of_param_dicts:
+            mean = torch.matmul(torch.matmul(transformed_X_test, param_dict['a']), param_dict['b'])
+            pred_prob += (2 * np.pi) ** (-output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
 
-    return list_of_param_dicts
+        return -torch.log(pred_prob / args.R).mean()
+
+    elif args.posterior_method == 'mcmc':
+
+        wholex = train_loader.dataset[:][0]
+        wholey = train_loader.dataset[:][1]
+        beta = 1.0
+
+        kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
+        mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup)
+        mcmc.run(pyro_rr, wholex, wholey, args.H, beta)
+        sampled_weights = mcmc.get_samples()
+
+        pred_prob = 0
+        output_dim = wholey.shape[1]
+        for r in range(0,args.R):
+            mean = torch.matmul(torch.matmul(transformed_X_test, sampled_weights['a'][r,:,:]), sampled_weights['b'][r,:,:])
+            pred_prob += (2 * np.pi) ** (-output_dim / 2) * torch.exp(
+                -(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
+        return -torch.log(pred_prob / args.R).mean()
 
 
-def lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test,Y_test):
+def lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test):
     
     transformed_X_train = model.feature_map(X_train)
     transformed_X_valid = model.feature_map(X_valid)
@@ -146,9 +156,7 @@ def lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test,Y_test)
         TensorDataset(Tensor(transformed_X_valid), torch.as_tensor(Y_valid, dtype=torch.long)), 
         batch_size=args.batchsize, shuffle=True)
 
-    last_layer_samples = posterior_sample(args, transformed_train_loader, transformed_valid_loader)
-    return neg_log_prob_posterior_predictive(transformed_X_test, Y_test, last_layer_samples)
-    
+    return posterior_sample(args, transformed_train_loader, transformed_valid_loader, transformed_X_test, Y_test)
     
 # def lastlayerlaplace():
     
@@ -160,26 +168,32 @@ def main():
     parser.add_argument('--taskid', type=int, default=1)
 
     # Data
-    parser.add_argument('--input-dim', type=int, default=15)
-    parser.add_argument('--output-dim', type=int, default=10)
-    parser.add_argument('--dataset', type=str, default='reducedrank_synthetic')
+    parser.add_argument('--input-dim', type=int, default=3)
+    parser.add_argument('--output-dim', type=int, default=3)
+    parser.add_argument('--dataset', type=str, default='reducedrank_synthetic') #name should match last layer
 
     # Model
     parser.add_argument('--feature-map-hidden',type=int,default=5)
-    parser.add_argument('--H', type=int, default=20, help='hidden units in final reduced regression layers')
+    parser.add_argument('--H', type=int, default=3, help='hidden units in final reduced regression layers')
 
-    # Approximate Bayesian inference
+    # posterior method
+    parser.add_argument('--posterior_method', type=str, default='mcmc',choices=['mcmc','ivi'])
 
-    parser.add_argument('--batchsize', type=int, default=20, help='used in IVI')
+    # MCMC
+    parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
+
+    # IVI
+
+    parser.add_argument('--batchsize', type=int, default=50, help='used in IVI')
 
     parser.add_argument('--epsilon_mc', type=int, default=100, help='used in IVI')
 
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=100)
 
     parser.add_argument('--pretrainDepochs', type=int, default=100,
                         help='number of epochs to pretrain discriminator')
 
-    parser.add_argument('--trainDepochs', type=int, default=50,
+    parser.add_argument('--trainDepochs', type=int, default=20,
                         help='number of epochs to train discriminator for each minibatch update of generator')
 
     parser.add_argument('--n_hidden_D', type=int, default=128,
@@ -201,10 +215,10 @@ def main():
                         help='dual learning rate (default: 0.01)')
 
     # averaging
-    parser.add_argument('--MCs', type=int, default=5,
+    parser.add_argument('--MCs', type=int, default=50,
                         help='number of times to split into train-test')
 
-    parser.add_argument('--R', type=int, default=500,
+    parser.add_argument('--R', type=int, default=1000,
                         help='number of MC draws from approximate posterior (default:200)')
 
     parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -221,7 +235,7 @@ def main():
     avg_lastlayerbayes_gen_err = np.array([])
     # avg_lastlayerlaplace_gen_err = np.array([])
     avg_map_gen_err = np.array([])
-    n_range = np.array([500, 750, 1000, 1500])
+    n_range = np.array([100, 200, 500, 750, 1000, 1500])
     # n_range = np.array([100, 250])
 
     for n in n_range:

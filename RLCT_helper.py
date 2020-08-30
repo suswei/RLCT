@@ -11,6 +11,7 @@ from statsmodels.tools.tools import add_constant
 
 import models
 
+
 def theoretical_RLCT(model,params):
     if model == 'rr':
         input_dim, output_dim, H0, H = params
@@ -35,6 +36,7 @@ def theoretical_RLCT(model,params):
         # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
 
     return trueRLCT
+
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
 
@@ -202,6 +204,13 @@ def weights_to_dict(args, sampled_weights):
 
             list_of_param_dicts.append({'a': a_params, 'b': b_params}.copy())
 
+        elif args.dataset == 'linear':
+
+            a_params = sampled_weights[i, 0:(args.input_dim * args.output_dim)].reshape(args.input_dim, args.output_dim)
+
+            list_of_param_dicts.append({'a': a_params}.copy())
+
+
         elif args.dataset == 'ffrelu_synthetic':
 
             W1 = sampled_weights[i, 0:(args.input_dim * args.H1)].reshape(args.input_dim, args.H1)
@@ -249,6 +258,14 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         # return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
         return loss(y, mean)
 
+    elif args.dataset == 'linear':
+
+        loss = nn.MSELoss(reduction='sum')
+        mean = torch.matmul(x, param_dictionary['a'])
+
+        # return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        return loss(y, mean)
+
     elif args.dataset == 'ffrelu_synthetic':
 
         # calculate hidden and output layers
@@ -259,7 +276,6 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         loss = nn.MSELoss(reduction='sum')
 
         return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
-
 
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
