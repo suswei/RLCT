@@ -102,7 +102,8 @@ def run_chains(beta, args):
             num_burnin_steps=num_burnin_steps,
             current_state=inits,
             kernel=kernel,
-            trace_fn=trace_fn_nuts
+            trace_fn=trace_fn_nuts,
+            num_steps_between_results=args.thin_factor
         )
         return res
 
@@ -192,7 +193,7 @@ if __name__ == '__main__':
     parser.add_argument("--x-max", nargs='?', default=1, type=int)
     parser.add_argument("--target-accept-prob", nargs='?', default=0.8, type=float)
     parser.add_argument("--num-betas", default=8, type=int)
-    parser.add_argument("--num-temps",default=6,type=int)
+    parser.add_argument("--thin-factor", default=1, type=int)
     parser.set_defaults(use_exchange=False)
 
     # old mc_num_results = num_samples
