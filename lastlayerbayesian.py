@@ -130,7 +130,7 @@ def posterior_sample(args, train_loader, test_loader, transformed_X_test, Y_test
         beta = 1.0
 
         kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
-        mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup)
+        mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup, disable_progbar=True)
         mcmc.run(pyro_rr, wholex, wholey, args.H, beta)
         sampled_weights = mcmc.get_samples()
 
