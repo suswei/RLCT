@@ -16,9 +16,9 @@ plt = matplotlib.pyplot
 # dataset
 def get_data(args):
 
-    train_size = args.n
+    train_size = int(args.n)
     valid_size = int(args.n * 0.5)
-    test_size = 10000
+    test_size = int(10000)
 
     a = Normal(0.0, 1.0)
     a_params = 0.2 * a.sample((args.input_dim, args.H))

@@ -41,10 +41,10 @@ def main(taskid):
     taskid = int(taskid[0])
     hyperparameter_config = {
         # 'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
-        'input_dim': [10, 20],
-        'output_dim': [10, 20],
-        'feature-map-hidden': [10, 20],
-        'H': [5, 10],
+        'input_dim': [3,10],
+        'output_dim': [3,10],
+        'feature-map-hidden': [5,10],
+        'H': [3,10],
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
