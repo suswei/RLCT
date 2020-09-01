@@ -76,7 +76,7 @@ class Model(nn.Module):
         return self.clf(x)
 
 
-# train module
+# TODO: implement early stopping using validation set to prevent MAP overfitting
 def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
 
     n, input_dim = X_train.shape
@@ -102,15 +102,27 @@ def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
     return model
 
 
-def posterior_sample(args, train_loader, test_loader, transformed_X_test, Y_test):
+def lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test):
+    
+    transformed_X_train = model.feature_map(X_train)
+    transformed_X_valid = model.feature_map(X_valid)
+    transformed_X_test = model.feature_map(X_test)
 
-    mc = 1
-    beta_index = 0
-    args.betas = [1.0]
-    saveimgpath = None
+    transformed_train_loader = torch.utils.data.DataLoader(
+        TensorDataset(Tensor(transformed_X_train), torch.as_tensor(Y_train, dtype=torch.long)),
+        batch_size=args.batchsize, shuffle=True)
+    transformed_valid_loader = torch.utils.data.DataLoader(
+        TensorDataset(Tensor(transformed_X_valid), torch.as_tensor(Y_valid, dtype=torch.long)), 
+        batch_size=args.batchsize, shuffle=True)
 
     if args.posterior_method == 'ivi':
-        G = train_implicitVI(train_loader, test_loader, args, mc, beta_index, saveimgpath)
+
+        mc = 1
+        beta_index = 0
+        args.betas = [1.0]
+        saveimgpath = None
+
+        G = train_implicitVI(transformed_train_loader, transformed_valid_loader, args, mc, beta_index, saveimgpath)
         eps = torch.randn(args.R, args.epsilon_dim)
         sampled_weights = G(eps)
         list_of_param_dicts = weights_to_dict(args, sampled_weights)
@@ -125,8 +137,8 @@ def posterior_sample(args, train_loader, test_loader, transformed_X_test, Y_test
 
     elif args.posterior_method == 'mcmc':
 
-        wholex = train_loader.dataset[:][0]
-        wholey = train_loader.dataset[:][1]
+        wholex = transformed_train_loader.dataset[:][0]
+        wholey = transformed_train_loader.dataset[:][1]
         beta = 1.0
 
         kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
@@ -142,24 +154,6 @@ def posterior_sample(args, train_loader, test_loader, transformed_X_test, Y_test
                 -(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
         return -torch.log(pred_prob / args.R).mean()
 
-
-def lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test):
-    
-    transformed_X_train = model.feature_map(X_train)
-    transformed_X_valid = model.feature_map(X_valid)
-    transformed_X_test = model.feature_map(X_test)
-
-    transformed_train_loader = torch.utils.data.DataLoader(
-        TensorDataset(Tensor(transformed_X_train), torch.as_tensor(Y_train, dtype=torch.long)),
-        batch_size=args.batchsize, shuffle=True)
-    transformed_valid_loader = torch.utils.data.DataLoader(
-        TensorDataset(Tensor(transformed_X_valid), torch.as_tensor(Y_valid, dtype=torch.long)), 
-        batch_size=args.batchsize, shuffle=True)
-
-    return posterior_sample(args, transformed_train_loader, transformed_valid_loader, transformed_X_test, Y_test)
-    
-# def lastlayerlaplace():
-    
     
 def main():
 
@@ -230,25 +224,31 @@ def main():
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
     args.epsilon_dim = args.H*(args.input_dim + args.output_dim)
+    # TODO: w_dim and total_param_count depend on model and shouldn't be hardcoded as follows
     args.w_dim = args.H*(args.input_dim + args.output_dim)
+    total_param_count = (args.input_dim + args.H + args.input_dim) * args.H + args.w_dim
 
     avg_lastlayerbayes_gen_err = np.array([])
-    # avg_lastlayerlaplace_gen_err = np.array([])
+    std_lastlayerbayes_gen_err = np.array([])
     avg_map_gen_err = np.array([])
-    n_range = np.array([100, 200, 500, 750, 1000, 1500])
-    # n_range = np.array([100, 250])
+    std_map_gen_err = np.array([])
+    avg_gen_err_baseline = np.array([])
+    std_gen_err_baseline = np.array([])
+
+    n_range = np.round(1/np.linspace(1/200,1/1000,5))
 
     for n in n_range:
 
         map_gen_err = np.empty(args.MCs)
         lastlayerbayes_gen_err = np.empty(args.MCs)
-        # lastlayerlaplace_gen_err = np.empty(args.MCs)
-        
+        gen_err_baseline_array = np.empty(args.MCs)
+
         args.n = n
 
         for mc in range(0, args.MCs):
 
             train_loader, valid_loader, test_loader, baseline, gen_err_baseline = get_data(args)
+            gen_err_baseline_array[mc] = gen_err_baseline
 
             X_train = train_loader.dataset[:][0]
             Y_train = train_loader.dataset[:][1]
@@ -264,41 +264,43 @@ def main():
 
             Bmap = list(model.parameters())[-1]
             Amap = list(model.parameters())[-2]
-            params = (args.input_dim, args.output_dim, np.linalg.matrix_rank(torch.matmul(Bmap,Amap).detach().numpy()), args.H)
+            params = (args.input_dim, args.output_dim, np.linalg.matrix_rank(torch.matmul(Bmap, Amap).detach().numpy()), args.H)
             trueRLCT = theoretical_RLCT('rr', params)
             print('true RLCT {}'.format(trueRLCT))
 
-            lastlayerbayes_gen_err[mc] = lastlayerIVI(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test)
-            # lastlayerlaplace_gen_err[mc] = lastlayerlaplace()
+            lastlayerbayes_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test)
 
             print('n = {}, mc {}, gen error (without entropy term): map {}, bayes last layer {}, baseline {}'
-                  .format(n, mc, map_gen_err[mc], lastlayerbayes_gen_err[mc],gen_err_baseline))
+                  .format(n, mc, map_gen_err[mc], lastlayerbayes_gen_err[mc], gen_err_baseline_array[mc]))
 
-            # true_rlct[mc] = get_true_rlct()
-            # print('last layer reduced rank {}: mc {}: Bg {} true rlct {}'.format(H,mc, Bg[mc], true_rlct[mc]))
 
         print('average gen error (without entropy term): MAP {}, bayes {}, baseline {}'
-              .format(map_gen_err.mean(),lastlayerbayes_gen_err.mean(), gen_err_baseline))
-        # print('hat RLCT/n: {}'.format(rlct.mean() / n))
-        # results.append({'H':H,'E_n Bg(n)': Bg.mean(), 'hat RLCT/n': rlct.mean()/ n})
+              .format(map_gen_err.mean(), lastlayerbayes_gen_err.mean(), gen_err_baseline_array[mc]))
 
-        # avg_lastlayerlaplace_gen_err = np.append(avg_lastlayerlaplace_gen_err,lastlayerbayes_gen_err.mean())
         avg_lastlayerbayes_gen_err = np.append(avg_lastlayerbayes_gen_err, lastlayerbayes_gen_err.mean())
+        std_lastlayerbayes_gen_err = np.append(std_lastlayerbayes_gen_err, lastlayerbayes_gen_err.std())
         avg_map_gen_err = np.append(avg_map_gen_err, map_gen_err.mean())
+        std_map_gen_err = np.append(std_map_gen_err, map_gen_err.std())
+        avg_gen_err_baseline = np.append(avg_gen_err_baseline, gen_err_baseline_array.mean())
+        std_gen_err_baseline = np.append(std_gen_err_baseline, gen_err_baseline_array.std())
 
-    print('avg bayes gen err {}'.format(avg_lastlayerbayes_gen_err))
-    print('avg MAP gen err{}'.format(avg_map_gen_err))
+    print('avg last-layer-bayes gen err {}, std {}'.format(avg_lastlayerbayes_gen_err, std_lastlayerbayes_gen_err))
+    print('avg MAP gen err {}, std {}'.format(avg_map_gen_err, std_map_gen_err))
+
+    ols_model_map = OLS(avg_map_gen_err, add_constant(1 / n_range)).fit()
 
     ols_model = OLS(avg_lastlayerbayes_gen_err, add_constant(1 / n_range)).fit()
     ols_intercept_estimate = ols_model.params[0]
     ols_slope_estimate = ols_model.params[1]
     print('estimated RLCT {}'.format(ols_intercept_estimate))
     #
-    plt.scatter(1/n_range, avg_lastlayerbayes_gen_err, c='r', label='En G(n) for last layer Bayes predictive')
-    plt.scatter(1/n_range, avg_map_gen_err, c='g', label='En G(n) for MAP')
-    plt.plot(1 / n_range, ols_intercept_estimate + ols_slope_estimate / n_range, 'b-', label='ols')
+    fig, ax = plt.subplots()
+    ax.errorbar(1/n_range, avg_lastlayerbayes_gen_err, yerr=std_lastlayerbayes_gen_err, fmt='-o', c='r', label='En G(n) for last layer Bayes predictive')
+    ax.errorbar(1/n_range, avg_map_gen_err, yerr=std_map_gen_err, fmt='-o', c='g', label='En G(n) for MAP')
+    plt.plot(1/n_range, avg_gen_err_baseline, 'k-', label='baseline')
+    plt.plot(1 / n_range, ols_intercept_estimate + ols_slope_estimate / n_range, 'r--', label='ols fit for last-layer-Bayes')
     plt.xlabel('1/n')
-    plt.title('slope {}, true RLCT {}'.format(ols_slope_estimate, trueRLCT))
+    plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(ols_model_map.params[0], total_param_count, ols_slope_estimate, trueRLCT))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
     plt.show()
