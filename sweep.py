@@ -51,7 +51,7 @@ def main(taskid):
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 lastlayerbayesian.py "
-              "--taskid %s --input-dim %s --output-dim %s --feature-map-hidden %s --H %s"
+              "--MCs 20 --taskid %s --input-dim %s --output-dim %s --feature-map-hidden %s --H %s"
               %(taskid, temp['input_dim'],temp['output_dim'],temp['feature-map-hidden'],temp['H']))
 
 # def main(taskid):
