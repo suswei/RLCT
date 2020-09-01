@@ -10,6 +10,33 @@ from tensorflow_probability import bijectors as tfb
 import multiprocessing
 from multiprocessing import Process, Manager
 
+def build_network_emc(weights_list, biases_list, nonlin):
+    def dense(X, W, b):
+        # temperature index t
+        # batch index i
+        # vector index x
+        a = tf.einsum('itx,txy->ity',X,W)
+        return nonlin(a + b)
+
+    def model(X):
+        # In the EMC case this is a bit more complicated, because the
+        # incoming data has only a batch and vector index so we do the
+        # first layer by hand
+        a = tf.einsum('ix,txy->ity',X,weights_list[0])
+        net = nonlin(a+biases_list[0])
+        
+        for (weights, biases) in zip(weights_list[1:-1], biases_list[1:-1]):
+            net = dense(net, weights, biases)
+
+        final_w = weights_list[-1]
+        final_b = biases_list[-1]
+        net = tf.einsum('itx,txy->ity',net,final_w) + final_b
+        preds = net[:,:,0]
+        
+        return tfd.Normal(loc=preds, scale=1.0)
+
+    return model
+    
 def build_network(weights_list, biases_list, nonlin):
     def dense(X, W, b):
         return nonlin(tf.matmul(X, W) + b)
@@ -116,4 +143,38 @@ def joint_log_prob_fn(center, weight_prior, X, y, beta, nonlin, *args):
     network = build_network(weights_list, biases_list, nonlin)
     labels_dist = network(X.astype("float32"))
     lp += beta * tf.reduce_sum(labels_dist.log_prob(y))
+    return lp
+
+def joint_log_prob_fn_emc(center, weight_prior, X, y, beta, nonlin, *args):
+    weights_list = args[::2]
+    biases_list = args[1::2]
+
+    center_weights = center[::2]
+    center_biases = center[1::2]
+
+    lp = 0.0
+    
+    print("\n")
+    for (b,bw) in zip(biases_list,center_biases):
+        print(b)
+        print(bw)
+        print("---")
+    print("\n")
+    
+    # prior log-prob
+    # first index is temperature
+    if( weight_prior != None ):
+        lp += sum(
+            [tf.reduce_sum(weight_prior.log_prob(w-cw),axis=[1,2])
+             for (w,cw) in zip(weights_list,center_weights)])
+
+        lp += sum([tf.reduce_sum(weight_prior.log_prob(b-bw),axis=[1])
+              for (b,bw) in zip(biases_list,center_biases)])
+    
+    # likelihood of predicted labels
+    network = build_network_emc(weights_list, biases_list, nonlin)
+    labels_dist = network(X.astype("float32"))
+    print(labels_dist.log_prob(y))
+    lp += beta * tf.reduce_sum(labels_dist.log_prob(y),axis=0)
+    print(lp)
     return lp
