@@ -77,13 +77,14 @@ class Model(nn.Module):
 
 
 # TODO: implement early stopping using validation set to prevent MAP overfitting
-def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
+def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, baseline):
 
     n, input_dim = X_train.shape
     n, output_dim = Y_train.shape
 
     model = Model(input_dim, output_dim, args.feature_map_hidden, args.H)
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
+    early_stopping = EarlyStopping(patience=50, verbose=False)
 
     for it in range(5000):
         model.train()
@@ -98,6 +99,15 @@ def map_train(args, X_train, Y_train, X_test, Y_test, baseline):
             ytest_pred = model(X_test).squeeze()
             test_loss = (torch.norm(ytest_pred - Y_test, dim=1)**2).mean()
             print('negative log prob loss: train {:.3f}, test {:.3f}, baseline {:.3f}'.format(l.item(), test_loss.item(),baseline))
+
+        model.eval()
+        with torch.no_grad():
+            valid_loss = (torch.norm(model(X_valid).squeeze() - Y_valid, dim=1)**2).mean()
+
+        early_stopping(valid_loss, model)
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
 
     return model
 
@@ -209,7 +219,7 @@ def main():
                         help='dual learning rate (default: 0.01)')
 
     # averaging
-    parser.add_argument('--MCs', type=int, default=50,
+    parser.add_argument('--MCs', type=int, default=20,
                         help='number of times to split into train-test')
 
     parser.add_argument('--R', type=int, default=1000,
@@ -235,7 +245,7 @@ def main():
     avg_gen_err_baseline = np.array([])
     std_gen_err_baseline = np.array([])
 
-    n_range = np.round(1/np.linspace(1/200,1/1000,5))
+    n_range = np.round(1/np.linspace(1/100,1/2000,10))
 
     for n in n_range:
 
@@ -257,7 +267,7 @@ def main():
             X_test = test_loader.dataset[:][0]
             Y_test = test_loader.dataset[:][1]
 
-            model = map_train(args, X_train, Y_train, X_test, Y_test, baseline)
+            model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, baseline)
             
             model.eval()
             map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean()
@@ -292,7 +302,7 @@ def main():
     ols_model = OLS(avg_lastlayerbayes_gen_err, add_constant(1 / n_range)).fit()
     ols_intercept_estimate = ols_model.params[0]
     ols_slope_estimate = ols_model.params[1]
-    print('estimated RLCT {}'.format(ols_intercept_estimate))
+    print('estimated RLCT {}'.format(ols_slope_estimate))
     #
     fig, ax = plt.subplots()
     ax.errorbar(1/n_range, avg_lastlayerbayes_gen_err, yerr=std_lastlayerbayes_gen_err, fmt='-o', c='r', label='En G(n) for last layer Bayes predictive')
@@ -300,7 +310,7 @@ def main():
     plt.plot(1/n_range, avg_gen_err_baseline, 'k-', label='baseline')
     plt.plot(1 / n_range, ols_intercept_estimate + ols_slope_estimate / n_range, 'r--', label='ols fit for last-layer-Bayes')
     plt.xlabel('1/n')
-    plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(ols_model_map.params[0], total_param_count, ols_slope_estimate, trueRLCT))
+    plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(ols_model_map.params[1], total_param_count, ols_slope_estimate, trueRLCT))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
     plt.show()
