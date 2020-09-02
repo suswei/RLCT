@@ -120,23 +120,39 @@ def run_chains(beta_index, dataset_index, args):
         for i in range(num_blocks):
             c = 0 if i > 0 else 1
             
-            chain, trace, kernel_results = graph_hmc(
-                num_results=checkpoint,
-                num_burnin_steps=num_burnin_steps*c,
-                current_state=current_state,
-                kernel=kernel,
-                trace_fn=trace_fn_nuts,
-                num_steps_between_results=args.thin_factor,
-                previous_kernel_results=kernel_results,
-                return_final_kernel_results=True
-            )
-            
             block_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(beta_index) + '-dataset' + str(dataset_index) + '-block' + str(i) + '.pickle'
+            
+            # If the file for this block exists, load the current_state and kernel_results
+            if os.path.isfile(block_filename):
+                with open(block_filename, 'rb') as handle:
+                    chain, trace, kernel_results = pickle.load(handle)
+            
+                block_str = "Beta [{0}] Dataset [{1}] block [{2}/{3}] save data found, SKIPPING".format(beta_index+1,dataset_index+1,i+1,num_blocks)
+                print(block_str)
+            else:
+                block_pre_time = time.time()
+                
+                chain, trace, kernel_results = graph_hmc(
+                    num_results=checkpoint,
+                    num_burnin_steps=num_burnin_steps*c,
+                    current_state=current_state,
+                    kernel=kernel,
+                    trace_fn=trace_fn_nuts,
+                    num_steps_between_results=args.thin_factor,
+                    previous_kernel_results=kernel_results,
+                    return_final_kernel_results=True
+                )
+            
+                block_post_time = time.time()
+                block_delta_str = '{0:.2f}'.format(block_post_time - block_pre_time)
+                block_samplerate_str = '{0:.2f}'.format((checkpoint + num_burnin_steps*c)/(block_post_time - block_pre_time))
                                             
-            # Save this block to disk
-            with open(block_filename, 'wb') as handle:
-                pickle.dump([chain,trace], handle, protocol=pickle.HIGHEST_PROTOCOL)
-                print("Beta [{0}] Dataset [{1}] block [{2}/{3}] saved to disk".format(beta_index+1,dataset_index+1,i+1,num_blocks))
+                # Save this block to disk
+                with open(block_filename, 'wb') as handle:
+                    pickle.dump([chain,trace,kernel_results], handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    block_str = "Beta [{0}] Dataset [{1}] block [{2}/{3}] saved to disk ".format(beta_index+1,dataset_index+1,i+1,num_blocks)
+                    block_str = block_str + "[" + block_delta_str + "s " + block_samplerate_str + " samples/s]"
+                    print(block_str)
             
             current_state = tf.nest.map_structure(lambda x: x[-1], chain)
             del chain
@@ -214,7 +230,7 @@ def run_chains(beta_index, dataset_index, args):
                                         
         # Save this block to disk
         with open(block_filename, 'rb') as handle:
-            chain, trace = pickle.load(handle)
+            chain, trace, _ = pickle.load(handle)
             chain_blocks.append(chain)
             trace_blocks.append(trace)
     
@@ -305,7 +321,7 @@ if __name__ == '__main__':
         with open(time_filename, 'wb') as handle:
             pickle.dump(delta_time, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-        print("         Time taken (s):", delta_time)
+        print("         Time taken: {0:.2f}s".format(delta_time))
         print("         Acceptance rate:", full_trace["is_accepted"][-args.num_samples:].numpy().mean())
         print("         Step size:", np.asarray(full_trace["step_size"][-args.num_samples:]).mean())
         num_divergences = full_trace["has_divergence"][-args.num_samples:].numpy().sum()
