@@ -40,19 +40,18 @@ def main(taskid):
 
     taskid = int(taskid[0])
     hyperparameter_config = {
-        # 'dataset': ['rr', 'lr', 'tanh', 'tanh_nontrivial'],
-        'input_dim': [3,10],
-        'output_dim': [3,10],
-        'feature-map-hidden': [5,10],
-        'H': [3,10],
+        'X-test-std': [1.0, 2.0, 3.0],
+        'realizable': [True, False],
+        'early-stopping': [True, False]
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 lastlayerbayesian.py "
-              "--MCs 20 --taskid %s --input-dim %s --output-dim %s --feature-map-hidden %s --H %s"
-              %(taskid, temp['input_dim'],temp['output_dim'],temp['feature-map-hidden'],temp['H']))
+              # "--num-n 3 --MCs 2 --num-warmup 10 --R 100 "
+              "--taskid %s --X-test-std %s --realizable %s --early-stopping %s"
+              %(taskid, temp['X-test-std'],temp['realizable'],temp['early-stopping']))
 
 # def main(taskid):
 #
