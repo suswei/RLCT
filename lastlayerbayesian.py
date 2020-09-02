@@ -183,12 +183,12 @@ def main():
     parser.add_argument('--input-dim', type=int, default=3)
     parser.add_argument('--output-dim', type=int, default=3)
     parser.add_argument('--X-test-std', type=float, default=1.0)
-    parser.add_argument('--realizable', type=bool, default=False)
+    parser.add_argument('--realizable', type=int, default=0)
 
     # Model
     parser.add_argument('--ffrelu-hidden',type=int,default=5, help='number of hidden units in feedforward relu layers')
     parser.add_argument('--rr-hidden', type=int, default=3, help='number of hidden units in final reduced regression layers')
-    parser.add_argument('--early-stopping', type=bool, default=False)
+    parser.add_argument('--early-stopping', type=int, default=0)
 
     # posterior method
     parser.add_argument('--posterior_method', type=str, default='mcmc',choices=['mcmc','ivi'])
@@ -246,10 +246,21 @@ def main():
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
+    # change to boolean
+    if args.early_stopping == 0:
+        args.early_stopping = False
+    else:
+        args.early_stopping = True
+    if args.realizable == 0:
+        args.realizable = False
+    else:
+        args.realizable = True
+
     args.epsilon_dim = args.rr_hidden*(args.input_dim + args.output_dim)
     # TODO: w_dim and total_param_count depend on model and shouldn't be hardcoded as follows
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim)
     total_param_count = (args.input_dim + args.rr_hidden + args.input_dim) * args.rr_hidden + args.w_dim
+    print(args)
 
     avg_lastlayerbayes_gen_err = np.array([])
     std_lastlayerbayes_gen_err = np.array([])

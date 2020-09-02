@@ -41,8 +41,8 @@ def main(taskid):
     taskid = int(taskid[0])
     hyperparameter_config = {
         'X-test-std': [1.0, 2.0, 3.0],
-        'realizable': [True, False],
-        'early-stopping': [True, False]
+        'realizable': [0, 1],
+        'early-stopping': [0, 1]
     }
     keys, values = zip(*hyperparameter_config.items())
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
