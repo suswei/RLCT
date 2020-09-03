@@ -20,7 +20,7 @@ import ray
 #                                                      'step_size'])
                                                           
 # For using Ray with TensorFlow see https://docs.ray.io/en/latest/using-ray-with-tensorflow.html
-@ray.remote(num_gpus=0.01)
+@ray.remote(num_cpus=1,num_gpus=0.05)
 def run_chains(beta_index, dataset_index, args):   
     import tensorflow as tf
     import mcmc_symmetry
@@ -117,6 +117,8 @@ def run_chains(beta_index, dataset_index, args):
         
         # we divide num_results into blocks, each of size checkpoint
         # only use burn-in for the first block
+        sample_rates = []
+        
         for i in range(num_blocks):
             c = 0 if i > 0 else 1
             
@@ -145,7 +147,9 @@ def run_chains(beta_index, dataset_index, args):
             
                 block_post_time = time.time()
                 block_delta_str = '{0:.2f}'.format(block_post_time - block_pre_time)
-                block_samplerate_str = '{0:.2f}'.format((checkpoint + num_burnin_steps*c)/(block_post_time - block_pre_time))
+                sample_rate = (checkpoint + num_burnin_steps*c)/(block_post_time - block_pre_time)
+                block_samplerate_str = '{0:.2f}'.format(sample_rate)
+                if( num_burnin_steps*c == 0 ): sample_rates.append(sample_rate)
                                             
                 # Save this block to disk
                 with open(block_filename, 'wb') as handle:
@@ -158,7 +162,7 @@ def run_chains(beta_index, dataset_index, args):
             del chain
             del trace
             
-        return
+        return sample_rates
 
     true_dist_state = mcmc_symmetry.true_distribution(args.num_hidden_true,args.num_hidden)
 
@@ -205,7 +209,7 @@ def run_chains(beta_index, dataset_index, args):
 
     pre_time = time.time()
   
-    run_nuts(target_log_prob_fn=logp,
+    sample_rates = run_nuts(target_log_prob_fn=logp,
                 inits=center_mc,
                 num_burnin_steps=args.num_warmup,
                 num_results=args.num_samples,
@@ -247,7 +251,7 @@ def run_chains(beta_index, dataset_index, args):
   
     n_Ln_mean = np.mean(n_Ln_samples)
     
-    return full_chain, full_trace, n_Ln_mean, delta_time
+    return full_chain, full_trace, n_Ln_mean, delta_time, sample_rates
 
 if __name__ == '__main__':                                
     parser = argparse.ArgumentParser(description="RLCT_HMC_symmetric")
@@ -267,7 +271,7 @@ if __name__ == '__main__':
     parser.add_argument("--target-accept-prob", nargs='?', default=0.8, type=float)
     parser.add_argument("--num-betas", default=8, type=int)
     parser.add_argument("--thin-factor", default=1, type=int)
-    parser.add_argument("--checkpoint",default=100, type=int)
+    parser.add_argument("--checkpoint",default=0, type=int)
 
     # old mc_num_results = num_samples
     # old mc_burnin_steps = num_warmup
@@ -282,6 +286,8 @@ if __name__ == '__main__':
     # old swish_beta = swish_beta
     
     args = parser.parse_args()
+    
+    if( args.checkpoint == 0 ): args.checkpoint = args.num_samples
     
     args_dict = vars(args)
     print(args_dict)
@@ -298,11 +304,15 @@ if __name__ == '__main__':
                        
     # For Ray basics: https://docs.ray.io/en/latest/walkthrough.html
     ray.init()
+    
     jobs = [(run_chains.remote(i,j,args),i,j) for i in range(args.num_betas) 
                                             for j in range(args.num_training_sets)]
 
+    overall_sample_rates = []
+    
     for (obj_ref, i, j) in jobs:
-        full_chain, full_trace, n_Ln_mean, delta_time = ray.get(obj_ref)    
+        full_chain, full_trace, n_Ln_mean, delta_time, sample_rates = ray.get(obj_ref)    
+        overall_sample_rates += sample_rates
         
         print("Beta [" + str(i+1) + "/" + str(args.num_betas) + "] Dataset [" + str(j+1) + "/" + str(args.num_training_sets) + "]")
         sample_filename = args.save_prefix + '/' + args.experiment_id + '-beta' + str(i) + '-dataset' + str(j) + '.pickle'
@@ -327,4 +337,6 @@ if __name__ == '__main__':
         num_divergences = full_trace["has_divergence"][-args.num_samples:].numpy().sum()
         print("         Divergences: {0}/{1} = {2}".format(num_divergences,args.num_samples,num_divergences/args.num_samples))  
     
+    if( len(overall_sample_rates) > 0 ):
+        print("Mean sample rate: {0:.2f} samples/s".format(np.mean(overall_sample_rates)))
     ray.shutdown()
