@@ -48,15 +48,15 @@ def get_data(args):
             true_mean = torch.matmul(torch.matmul(X, a_params), b_params)
         y = true_mean + y_rv.sample(torch.Size([test_size]))
         dataset_test = TensorDataset(X, y)
-        oracle = (torch.norm(y - true_mean, dim=1)**2).mean()
-        gen_err_oracle = -torch.log((2 * np.pi) ** (-args.output_dim / 2) * torch.exp(
+        oracle_mse = (torch.norm(y - true_mean, dim=1)**2).mean()
+        entropy = -torch.log((2 * np.pi) ** (-args.output_dim / 2) * torch.exp(
             -(1 / 2) * torch.norm(y - true_mean, dim=1) ** 2)).mean()
 
         train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
         valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True)
         test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True)
 
-    return train_loader, valid_loader, test_loader, oracle, gen_err_oracle
+    return train_loader, valid_loader, test_loader, oracle_mse, entropy
 
 
 # model: small feedforward relu block, followed by reduced rank regression in last layers
@@ -84,7 +84,7 @@ class Model(nn.Module):
 
 
 # TODO: implement early stopping using validation set to prevent MAP overfitting
-def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle):
+def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse):
 
     model = Model(args.input_dim, args.output_dim, args.ffrelu_hidden, args.rr_hidden)
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
@@ -107,7 +107,7 @@ def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle):
             model.eval()
             ytest_pred = model(X_test).squeeze()
             test_loss = (torch.norm(ytest_pred - Y_test, dim=1)**2).mean()
-            print('avg negative log prob: train {:.3f}, validation {:.3f}, test {:.3f}, oracle {:.3f}'.format(l.item(), valid_loss, test_loss.item(), oracle))
+            print('MSE: train {:.3f}, validation {:.3f}, test {:.3f}, oracle on test set {:.3f}'.format(l.item(), valid_loss, test_loss.item(), oracle_mse))
 
         if args.early_stopping:
             early_stopping(valid_loss, model)
@@ -266,8 +266,8 @@ def main():
     std_lastlayerbayes_gen_err = np.array([])
     avg_map_gen_err = np.array([])
     std_map_gen_err = np.array([])
-    avg_gen_err_oracle = np.array([])
-    std_gen_err_oracle = np.array([])
+    avg_entropy = np.array([])
+    std_entropy = np.array([])
 
     n_range = np.round(1/np.linspace(1/200,1/10000,args.num_n))
 
@@ -275,14 +275,14 @@ def main():
 
         map_gen_err = np.empty(args.MCs)
         lastlayerbayes_gen_err = np.empty(args.MCs)
-        gen_err_oracle_array = np.empty(args.MCs)
+        entropy_array = np.empty(args.MCs)
 
         args.n = n
 
         for mc in range(0, args.MCs):
 
-            train_loader, valid_loader, test_loader, oracle, gen_err_oracle = get_data(args)
-            gen_err_oracle_array[mc] = gen_err_oracle
+            train_loader, valid_loader, test_loader, oracle_mse, entropy = get_data(args)
+            entropy_array[mc] = entropy
 
             X_train = train_loader.dataset[:][0]
             Y_train = train_loader.dataset[:][1]
@@ -291,10 +291,10 @@ def main():
             X_test = test_loader.dataset[:][0]
             Y_test = test_loader.dataset[:][1]
 
-            model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle)
+            model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse)
             
             model.eval()
-            map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - gen_err_oracle
+            map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
             Bmap = list(model.parameters())[-1]
             Amap = list(model.parameters())[-2]
@@ -302,7 +302,7 @@ def main():
             trueRLCT = theoretical_RLCT('rr', params)
             print('true RLCT {}'.format(trueRLCT))
 
-            lastlayerbayes_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - gen_err_oracle
+            lastlayerbayes_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
 
             print('n = {}, mc {}, gen error: map {}, bayes last layer {}'
                   .format(n, mc, map_gen_err[mc], lastlayerbayes_gen_err[mc]))
@@ -315,8 +315,8 @@ def main():
         std_lastlayerbayes_gen_err = np.append(std_lastlayerbayes_gen_err, lastlayerbayes_gen_err.std())
         avg_map_gen_err = np.append(avg_map_gen_err, map_gen_err.mean())
         std_map_gen_err = np.append(std_map_gen_err, map_gen_err.std())
-        avg_gen_err_oracle = np.append(avg_gen_err_oracle, gen_err_oracle_array.mean())
-        std_gen_err_oracle = np.append(std_gen_err_oracle, gen_err_oracle_array.std())
+        avg_entropy = np.append(avg_entropy, entropy_array.mean())
+        std_entropy = np.append(std_entropy, entropy_array.std())
 
     print('avg LLB gen err {}, std {}'.format(avg_lastlayerbayes_gen_err, std_lastlayerbayes_gen_err))
     print('avg MAP gen err {}, std {}'.format(avg_map_gen_err, std_map_gen_err))
@@ -342,7 +342,6 @@ def main():
     fig, ax = plt.subplots()
     ax.errorbar(1/n_range, avg_lastlayerbayes_gen_err, yerr=std_lastlayerbayes_gen_err, fmt='-o', c='r', label='En G(n) for last layer Bayes predictive')
     ax.errorbar(1/n_range, avg_map_gen_err, yerr=std_map_gen_err, fmt='-o', c='g', label='En G(n) for MAP')
-    # plt.plot(1/n_range, avg_gen_err_oracle, 'k-', label='oracle')
     plt.plot(1 / n_range, llb_intercept + llb_slope / n_range, 'r--', label='ols fit for last-layer-Bayes')
     plt.xlabel('1/n')
     plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(map_slope, total_param_count, llb_slope, trueRLCT))
