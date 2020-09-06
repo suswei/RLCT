@@ -71,7 +71,7 @@ def run_chains(beta_index, dataset_index, args):
     def nest_concat(*args):
         return tf.nest.map_structure(lambda *parts: tf.concat(parts, axis=0), *args)
       
-    @tf.function(autograph=False,experimental_compile=True)
+    @tf.function(experimental_compile=True) #(autograph=False,experimental_compile=True)
     def graph_hmc(*args, **kwargs):
         return tfp.mcmc.sample_chain(*args, **kwargs)
         
