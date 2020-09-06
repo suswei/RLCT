@@ -143,6 +143,7 @@ def lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test,
 
         # TODO: strip train_implicitVI to simplest possible inputs
         G = train_implicitVI(transformed_train_loader, transformed_valid_loader, args, mc, beta_index, saveimgpath)
+        args.epsilon_dim = args.rr_hidden * (args.input_dim + args.output_dim)
         eps = torch.randn(args.R, args.epsilon_dim)
         sampled_weights = G(eps)
         list_of_param_dicts = weights_to_dict(args, sampled_weights)
@@ -181,14 +182,22 @@ def main():
 
     # Data
     parser.add_argument('--input-dim', type=int, default=3)
+
     parser.add_argument('--output-dim', type=int, default=3)
+
     parser.add_argument('--X-test-std', type=float, default=1.0)
+
     parser.add_argument('--realizable', type=int, default=0)
 
     # Model
     parser.add_argument('--ffrelu-hidden',type=int,default=5, help='number of hidden units in feedforward relu layers')
+
     parser.add_argument('--rr-hidden', type=int, default=3, help='number of hidden units in final reduced regression layers')
+
     parser.add_argument('--early-stopping', type=int, default=0)
+
+    parser.add_argument('--log-interval', type=int, default=500, metavar='N',
+                        help='how many batches to wait before logging training status')
 
     # posterior method
     parser.add_argument('--posterior_method', type=str, default='mcmc',choices=['mcmc','ivi'])
@@ -238,13 +247,15 @@ def main():
     parser.add_argument('--num-n', type=int, default=10,
                         help='number of sample sizes')
 
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
+
+    parser.add_argument('--seed', type=int, default=43)
+    parser.add_argument('--cuda', action='store_true',default=False,
+                        help='flag for CUDA training')
+
 
     args = parser.parse_args()
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
+    args.cuda = args.cuda and torch.cuda.is_available()
 
     # change to boolean
     if args.early_stopping == 0:
@@ -256,25 +267,26 @@ def main():
     else:
         args.realizable = True
 
-    args.epsilon_dim = args.rr_hidden*(args.input_dim + args.output_dim)
     # TODO: w_dim and total_param_count depend on model and shouldn't be hardcoded as follows
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim)
-    total_param_count = (args.input_dim + args.rr_hidden + args.input_dim) * args.rr_hidden + args.w_dim
+    args.total_param_count = (args.input_dim + args.rr_hidden + args.input_dim) * args.rr_hidden + args.w_dim
+    H0 = min(args.input_dim,args.output_dim,args.rr_hidden)
+    args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
-    avg_lastlayerbayes_gen_err = np.array([])
-    std_lastlayerbayes_gen_err = np.array([])
+    avg_llb_gen_err = np.array([])
+    std_llb_gen_err = np.array([])
     avg_map_gen_err = np.array([])
     std_map_gen_err = np.array([])
     avg_entropy = np.array([])
     std_entropy = np.array([])
 
-    n_range = np.round(1/np.linspace(1/200,1/10000,args.num_n))
+    n_range = np.round(1/np.linspace(1/200, 1/10000, args.num_n))
 
     for n in n_range:
 
         map_gen_err = np.empty(args.MCs)
-        lastlayerbayes_gen_err = np.empty(args.MCs)
+        llb_gen_err = np.empty(args.MCs)
         entropy_array = np.empty(args.MCs)
 
         args.n = n
@@ -296,60 +308,59 @@ def main():
             model.eval()
             map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
-            Bmap = list(model.parameters())[-1]
-            Amap = list(model.parameters())[-2]
-            params = (args.input_dim, args.output_dim, np.linalg.matrix_rank(torch.matmul(Bmap, Amap).detach().numpy()), args.rr_hidden)
-            trueRLCT = theoretical_RLCT('rr', params)
-            print('true RLCT {}'.format(trueRLCT))
-
-            lastlayerbayes_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
+            llb_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
 
             print('n = {}, mc {}, gen error: map {}, bayes last layer {}'
-                  .format(n, mc, map_gen_err[mc], lastlayerbayes_gen_err[mc]))
+                  .format(n, mc, map_gen_err[mc], llb_gen_err[mc]))
 
 
         print('average gen error: MAP {}, bayes {}'
-              .format(map_gen_err.mean(), lastlayerbayes_gen_err.mean()))
+              .format(map_gen_err.mean(), llb_gen_err.mean()))
 
-        avg_lastlayerbayes_gen_err = np.append(avg_lastlayerbayes_gen_err, lastlayerbayes_gen_err.mean())
-        std_lastlayerbayes_gen_err = np.append(std_lastlayerbayes_gen_err, lastlayerbayes_gen_err.std())
+        avg_llb_gen_err = np.append(avg_llb_gen_err, llb_gen_err.mean())
+        std_llb_gen_err = np.append(std_llb_gen_err, llb_gen_err.std())
         avg_map_gen_err = np.append(avg_map_gen_err, map_gen_err.mean())
         std_map_gen_err = np.append(std_map_gen_err, map_gen_err.std())
         avg_entropy = np.append(avg_entropy, entropy_array.mean())
         std_entropy = np.append(std_entropy, entropy_array.std())
 
-    print('avg LLB gen err {}, std {}'.format(avg_lastlayerbayes_gen_err, std_lastlayerbayes_gen_err))
+    print('avg LLB gen err {}, std {}'.format(avg_llb_gen_err, std_llb_gen_err))
     print('avg MAP gen err {}, std {}'.format(avg_map_gen_err, std_map_gen_err))
 
+    # varaibles to save for producing graphics/table later
+    save_objects = (n_range, avg_llb_gen_err,std_llb_gen_err, avg_map_gen_err, std_map_gen_err)
 
+    # summarize results
     if args.realizable:
         ols_map = OLS(avg_map_gen_err, 1 / n_range).fit()
         map_slope = ols_map.params[0]
 
-        ols_llb = OLS(avg_lastlayerbayes_gen_err, 1 / n_range).fit()
+        ols_llb = OLS(avg_llb_gen_err, 1 / n_range).fit()
         llb_intercept = 0.0
         llb_slope = ols_llb.params[0]
     else:
         ols_map = OLS(avg_map_gen_err, add_constant(1 / n_range)).fit()
         map_slope = ols_map.params[1]
 
-        ols_llb = OLS(avg_lastlayerbayes_gen_err, add_constant(1 / n_range)).fit()
+        ols_llb = OLS(avg_llb_gen_err, add_constant(1 / n_range)).fit()
         llb_intercept = ols_llb.params[0]
         llb_slope = ols_llb.params[1]
 
     print('estimated RLCT {}'.format(llb_slope))
-    #
+
+    # learning curves
     fig, ax = plt.subplots()
-    ax.errorbar(1/n_range, avg_lastlayerbayes_gen_err, yerr=std_lastlayerbayes_gen_err, fmt='-o', c='r', label='En G(n) for last layer Bayes predictive')
+    ax.errorbar(1/n_range, avg_llb_gen_err, yerr=std_llb_gen_err, fmt='-o', c='r', label='En G(n) for last layer Bayes predictive')
     ax.errorbar(1/n_range, avg_map_gen_err, yerr=std_map_gen_err, fmt='-o', c='g', label='En G(n) for MAP')
     plt.plot(1 / n_range, llb_intercept + llb_slope / n_range, 'r--', label='ols fit for last-layer-Bayes')
     plt.xlabel('1/n')
-    plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(map_slope, total_param_count, llb_slope, trueRLCT))
+    plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(map_slope, args.total_param_count, llb_slope, args.trueRLCT))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
     plt.show()
 
-    torch.save(args,'taskid{}.pt'.format(args.taskid))
+    torch.save(args,'taskid{}_args.pt'.format(args.taskid))
+    torch.save(save_objects,'taskid{}_results.pt'.format(args.taskid))
 
 if __name__ == "__main__":
     main()
