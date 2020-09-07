@@ -45,11 +45,13 @@ def get_data(args):
         X_test = args.X_test_std * X_rv.sample(torch.Size([test_size]))
 
         if args.realizable:
-            true_model = Model(args.input_dim, args.output_dim, args.ffrelu_hidden, args.rr_hidden)
+
+            true_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
             true_model.eval()
             true_mean = true_model(X)
             true_mean_test = true_model(X_test)
         else:
+
             a = Normal(0.0, 1.0)
             a_params = 0.2 * a.sample((args.input_dim, args.rr_hidden))
             b = Normal(0.0, 1.0)
@@ -64,12 +66,11 @@ def get_data(args):
         dataset_test = TensorDataset(X_test, y_test)
 
         oracle_mse = (torch.norm(y_test - true_mean_test, dim=1)**2).mean()
-        entropy = -torch.log((2 * np.pi) ** (-args.output_dim / 2) * torch.exp(
-            -(1 / 2) * torch.norm(y_test - true_mean_test, dim=1) ** 2)).mean()
+        entropy = -torch.log((2 * np.pi) ** (-args.output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(y_test - true_mean_test, dim=1) ** 2)).mean()
 
-        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batchsize, shuffle=True)
-        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batchsize, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batchsize, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=int(args.batchsize), shuffle=True)
+        valid_loader = torch.utils.data.DataLoader(dataset_valid, batch_size=int(args.batchsize), shuffle=True)
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=int(args.batchsize), shuffle=True)
 
     return train_loader, valid_loader, test_loader, oracle_mse, entropy
 
@@ -77,17 +78,26 @@ def get_data(args):
 # model: small feedforward relu block, followed by reduced rank regression in last layers
 class Model(nn.Module):
 
-    def __init__(self, input_dim, output_dim, ffrelu_hidden, rr_hidden):
+    def __init__(self, input_dim, output_dim, ffrelu_layers, ffrelu_hidden, rr_hidden):
         super(Model, self).__init__()
 
-        # TODO: variable layers
-        self.feature_map = nn.Sequential(
-            nn.Linear(input_dim, ffrelu_hidden),
-            nn.ReLU(),
-            nn.Linear(ffrelu_hidden, ffrelu_hidden),
-            nn.ReLU(),
-            nn.Linear(ffrelu_hidden, input_dim),
-        )
+        self.enc_sizes = np.concatenate(
+            ([input_dim], np.repeat(ffrelu_hidden, ffrelu_layers + 1), [input_dim])).tolist()
+        blocks = [[nn.Linear(in_f, out_f), nn.ReLU()]
+                  for in_f, out_f in zip(self.enc_sizes, self.enc_sizes[1:])]
+        blocks = list(itertools.chain(*blocks))
+        del blocks[-1]  # remove the last ReLu, don't need it in output layer
+
+        self.feature_map = nn.Sequential(*blocks)
+
+        # # TODO: variable layers
+        # self.feature_map = nn.Sequential(
+        #     nn.Linear(input_dim, ffrelu_hidden),
+        #     nn.ReLU(),
+        #     nn.Linear(ffrelu_hidden, ffrelu_hidden),
+        #     nn.ReLU(),
+        #     nn.Linear(ffrelu_hidden, input_dim),
+        # )
 
         # TODO: linear layer alternative?
         self.rr = nn.Sequential(
@@ -102,7 +112,7 @@ class Model(nn.Module):
 
 def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
 
-    model = Model(args.input_dim, args.output_dim, args.ffrelu_hidden, args.rr_hidden)
+    model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
 
@@ -132,7 +142,7 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
                 break
 
         # print test loss every now and then
-        if it % 100 == 0:
+        if it % args.log_interval == 0:
             model.eval()
             with torch.no_grad():
                 test_loss = 0
@@ -210,6 +220,10 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
     entropy_array = np.empty(args.MCs)
 
     args.n = n
+    if args.minibatch == 0:
+        args.batchsize = n
+    else:
+        args.batchsize = 32
 
     start = time.time()
     
@@ -220,8 +234,6 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
 
         X_train = train_loader.dataset[:][0]
         Y_train = train_loader.dataset[:][1]
-        X_valid = valid_loader.dataset[:][0]
-        Y_valid = valid_loader.dataset[:][1]
         X_test = test_loader.dataset[:][0]
         Y_test = test_loader.dataset[:][1]
 
@@ -230,16 +242,18 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
         model.eval()
         G_map[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
-        G_lll[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
+        # G_lll[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
         G_llb[mc] = lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
-        print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}, last layer laplace {}'
-              .format(n, mc, G_map[mc], G_llb[mc], G_lll[mc]))
+        print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}'
+              .format(n, mc, G_map[mc], G_llb[mc]))
+        # print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}, last layer laplace {}'
+        #       .format(n, mc, G_map[mc], G_llb[mc], G_lll[mc]))
 
+    print('[n = {}] average gen error: MAP {}, last layer mcmc {}'
+          .format(n, G_map.mean(), G_llb.mean()))
 
-    print('[n = {}] average gen error: MAP {}, last layer mcmc {}, last layer laplace {}'
-          .format(n, G_map.mean(), G_llb.mean(), G_lll.mean()))
     print('[n = {}] time taken(s): {}'.format(n, time.time() - start))
     
     avg_G_llb[i] = G_llb.mean()
@@ -249,7 +263,8 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
     avg_entropy[i] = entropy_array.mean()
     std_entropy[i] = entropy_array.std()
     return
-       
+
+
 def main():
 
     parser = argparse.ArgumentParser(description='last layer Bayesian')
@@ -263,16 +278,22 @@ def main():
 
     parser.add_argument('--X-test-std', type=float, default=1.0)
 
-    parser.add_argument('--realizable', type=int, default=0)
+    parser.add_argument('--realizable', type=int, default=0, help='1 if true distribution is realizable by model')
 
-    parser.add_argument('--batchsize', type=int, default=50, help='common to all data loaders and used in map training')
 
     # Model
-    parser.add_argument('--ffrelu-hidden',type=int,default=5, help='number of hidden units in feedforward relu layers')
+    parser.add_argument('--ffrelu-layers',type=int,default=2, help='number of layers in feedforward relu block')
+
+    parser.add_argument('--ffrelu-hidden',type=int,default=5, help='number of hidden units in feedforward relu block')
 
     parser.add_argument('--rr-hidden', type=int, default=3, help='number of hidden units in final reduced regression layers')
 
-    parser.add_argument('--early-stopping', type=int, default=0)
+    parser.add_argument('--minibatch', type=int, default=0, help='1 if use minbatch sgd for map training')
+
+    parser.add_argument('--train-epochs', type=int, default=5000,
+                        help='number of epochs to find MAP')
+
+    parser.add_argument('--early-stopping', type=int, default=0, help='1 to employ early stopping in map training based on validation loss')
 
     parser.add_argument('--log-interval', type=int, default=500, metavar='N',
                         help='how many batches to wait before logging training status')
@@ -280,25 +301,22 @@ def main():
     parser.add_argument('--weight-decay', type=float, default=5e-4)
 
     # MCMC
-    parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
 
-    # averaging
-    parser.add_argument('--MCs', type=int, default=20,
-                        help='number of times to split into train-test')
+    parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
 
     parser.add_argument('--R', type=int, default=1000,
                         help='number of MC draws from approximate posterior')
 
+    parser.add_argument('--MCs', type=int, default=20,
+                        help='number of times to split into train-test')
+
     parser.add_argument('--num-n', type=int, default=10,
                         help='number of sample sizes')
 
-
     parser.add_argument('--seed', type=int, default=43)
+
     parser.add_argument('--cuda', action='store_true',default=False,
                         help='flag for CUDA training')
-
-    parser.add_argument('--train-epochs', type=int, default=5000,
-                        help='number of epochs to find MAP')
 
     args = parser.parse_args()
     torch.manual_seed(args.seed)
@@ -314,6 +332,7 @@ def main():
     else:
         args.realizable = True
 
+
     # TODO: w_dim and total_param_count depend on model and shouldn't be hardcoded as follows
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim)
     args.total_param_count = (args.input_dim + args.rr_hidden + args.input_dim) * args.rr_hidden + args.w_dim
@@ -321,7 +340,7 @@ def main():
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
-    n_range = np.round(1/np.linspace(1/200, 1/10000, args.num_n))
+    n_range = np.rint(1/np.linspace(1/200, 1/10000, args.num_n)).astype(int)
 
     # We do each n in parallel
     manager = Manager()
@@ -392,6 +411,7 @@ def main():
 
     torch.save(args,'taskid{}_args.pt'.format(args.taskid))
     torch.save(save_objects,'taskid{}_results.pt'.format(args.taskid))
+
 
 if __name__ == "__main__":
     main()
