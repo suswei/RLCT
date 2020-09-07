@@ -9,6 +9,7 @@ from torch.utils.data import TensorDataset
 from torch import Tensor
 
 from main import *
+from utils import exact_hessian
 
 plt = matplotlib.pyplot
 
@@ -65,6 +66,7 @@ class Model(nn.Module):
     def __init__(self, input_dim, output_dim, ffrelu_hidden, rr_hidden):
         super(Model, self).__init__()
 
+        # TODO: variable layers
         self.feature_map = nn.Sequential(
             nn.Linear(input_dim, ffrelu_hidden),
             nn.ReLU(),
@@ -73,9 +75,10 @@ class Model(nn.Module):
             nn.Linear(ffrelu_hidden, input_dim),
         )
 
+        # TODO: linear layer alternative?
         self.rr = nn.Sequential(
-            nn.Linear(input_dim, rr_hidden, bias=False),
-            nn.Linear(rr_hidden, output_dim, bias=False)
+            nn.Linear(input_dim, rr_hidden, bias=False), # A
+            nn.Linear(rr_hidden, output_dim, bias=False) # B
         )
 
     def forward(self, x):
@@ -83,11 +86,10 @@ class Model(nn.Module):
         return self.rr(x)
 
 
-# TODO: implement early stopping using validation set to prevent MAP overfitting
 def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse):
 
     model = Model(args.input_dim, args.output_dim, args.ffrelu_hidden, args.rr_hidden)
-    opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
+    opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
 
     # TODO: is it necessary to implement mini batch SGD?
@@ -116,6 +118,42 @@ def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_m
                 break
 
     return model
+
+def LastLayerLaplace(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test):
+
+    transformed_X_test = model.feature_map(X_test)
+
+    A = list(model.parameters())[-2]
+    A_map = A.view(-1).data.numpy()
+    B = list(model.parameters())[-1]
+    B_map = B.view(-1).data.numpy()
+
+    W_map = np.concatenate((A_map, B_map))
+
+    # get negative log posterior = negative log likelihood + negative log prior
+    y_pred = model(X_train).squeeze()
+    nll = (torch.norm(y_pred - Y_train, dim=1)**2).mean()
+    # Negative-log-prior
+    nlp = 1 / 2 * A.flatten() @ (args.weight_decay * torch.eye(A.numel())) @ A.flatten() + 1 / 2 * B.flatten() @ (args.weight_decay * torch.eye(B.numel())) @ B.flatten()
+    loss = nll + nlp
+
+    Lambda = exact_hessian(loss, [A,B])  # The Hessian of the negative log-posterior
+    Sigma = torch.inverse(Lambda).detach().numpy()
+
+    # posterior over w approximated as N(w_map, Sigma)
+    sampled_weights = np.random.multivariate_normal(mean=W_map, cov=Sigma, size=args.R)
+
+    with torch.no_grad():
+
+        pred_prob = 0
+        for r in range(0, args.R):
+            sampled_a = sampled_weights[r,0:(args.rr_hidden*args.input_dim)].reshape(args.input_dim,args.rr_hidden)
+            sampled_b = sampled_weights[r,-(args.rr_hidden*args.output_dim):].reshape(args.rr_hidden,args.output_dim)
+
+            mean = np.matmul(np.matmul(transformed_X_test.detach().numpy(),sampled_a),sampled_b)
+            pred_prob += (2 * np.pi) ** (-args.output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
+
+    return -torch.log(pred_prob / args.R).mean()
 
 
 def lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test):
@@ -198,6 +236,8 @@ def main():
 
     parser.add_argument('--log-interval', type=int, default=500, metavar='N',
                         help='how many batches to wait before logging training status')
+
+    parser.add_argument('--weight-decay', type=float, default=5e-4)
 
     # posterior method
     parser.add_argument('--posterior_method', type=str, default='mcmc',choices=['mcmc','ivi'])
@@ -287,6 +327,7 @@ def main():
 
         map_gen_err = np.empty(args.MCs)
         llb_gen_err = np.empty(args.MCs)
+        lll_gen_err = np.empty(args.MCs)
         entropy_array = np.empty(args.MCs)
 
         args.n = n
@@ -304,14 +345,16 @@ def main():
             Y_test = test_loader.dataset[:][1]
 
             model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse)
-            
+
             model.eval()
             map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
+            lll_gen_err[mc] = LastLayerLaplace(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
+
             llb_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
 
-            print('n = {}, mc {}, gen error: map {}, bayes last layer {}'
-                  .format(n, mc, map_gen_err[mc], llb_gen_err[mc]))
+            print('n = {}, mc {}, gen error: map {}, last layer bayes {}, last layer laplace {}'
+                  .format(n, mc, map_gen_err[mc], llb_gen_err[mc], lll_gen_err[mc]))
 
 
         print('average gen error: MAP {}, bayes {}'
