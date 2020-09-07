@@ -105,6 +105,8 @@ class Model(nn.Module):
             nn.Linear(rr_hidden, output_dim, bias=False) # B
         )
 
+
+
     def forward(self, x):
         x = self.feature_map(x)
         return self.rr(x)
@@ -113,6 +115,8 @@ class Model(nn.Module):
 def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
 
     model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
+    args.total_param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
 
@@ -238,7 +242,7 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
         Y_test = test_loader.dataset[:][1]
 
         model = map_train(args, train_loader, valid_loader, test_loader, oracle_mse)
-        
+
         model.eval()
         G_map[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
@@ -332,11 +336,8 @@ def main():
     else:
         args.realizable = True
 
-
-    # TODO: w_dim and total_param_count depend on model and shouldn't be hardcoded as follows
-    args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim)
-    args.total_param_count = (args.input_dim + args.rr_hidden + args.input_dim) * args.rr_hidden + args.w_dim
-    H0 = min(args.input_dim,args.output_dim,args.rr_hidden)
+    args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim) # number of parameters in reduced rank regression layers
+    H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
