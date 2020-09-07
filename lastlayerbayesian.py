@@ -1,9 +1,13 @@
 # wiseodd/last_layer_laplace
 
+import time
+
 import matplotlib
+matplotlib.use("Agg")
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-import seaborn as sns; sns.set_style('white')
+import seaborn as sns
+sns.set_style('white')
 
 from torch.utils.data import TensorDataset
 from torch import Tensor
@@ -12,6 +16,19 @@ from main import *
 
 plt = matplotlib.pyplot
 
+# DM
+import torch.multiprocessing
+from torch.multiprocessing import Process, Manager
+
+# DM
+# This is required both to get AMD CPUs to work well, but also
+# to disable the aggressive multi-threading of the underlying
+# linear algebra libraries, which interferes with our multiprocessing
+# with PyTorch
+os.environ['CUDA_VISIBLE_DEVICES'] = '' # disable CUDA
+os.environ['MKL_DEBUG_CPU_TYPE'] = '5' # Get MKL to work properly on AMD CPU
+os.environ['MKL_SERIAL'] = 'YES' # reduce thread usage in linalg
+os.environ['OMP_NUM_THREADS'] = '1' # reduce thread usage in linalg
 
 # dataset
 def get_data(args):
@@ -91,7 +108,7 @@ def map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_m
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
 
     # TODO: is it necessary to implement mini batch SGD?
-    for it in range(5000):
+    for it in range(args.train_epochs):
         model.train()
         y_pred = model(X_train).squeeze()
         l = (torch.norm(y_pred - Y_train, dim=1)**2).mean()
@@ -173,7 +190,51 @@ def lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test,
 
     return -torch.log(pred_prob / args.R).mean()
 
+
+def run_worker(i, n, avg_llb_gen_err, std_llb_gen_err,
+                    avg_map_gen_err, std_map_gen_err, avg_entropy, std_entropy, args):
+    map_gen_err = np.empty(args.MCs)
+    llb_gen_err = np.empty(args.MCs)
+    entropy_array = np.empty(args.MCs)
+
+    args.n = n
+
+    start = time.time()
     
+    for mc in range(0, args.MCs):
+        train_loader, valid_loader, test_loader, oracle_mse, entropy = get_data(args)
+        entropy_array[mc] = entropy
+
+        X_train = train_loader.dataset[:][0]
+        Y_train = train_loader.dataset[:][1]
+        X_valid = valid_loader.dataset[:][0]
+        Y_valid = valid_loader.dataset[:][1]
+        X_test = test_loader.dataset[:][0]
+        Y_test = test_loader.dataset[:][1]
+
+        model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse)
+        
+        model.eval()
+        map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
+
+        llb_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
+
+        print('[n = {}] mc {}, gen error: map {}, bayes last layer {}'
+              .format(n, mc, map_gen_err[mc], llb_gen_err[mc]))
+
+
+    print('[n = {}] average gen error: MAP {}, bayes {}'
+          .format(n, map_gen_err.mean(), llb_gen_err.mean()))
+    print('[n = {}] time taken(s): {}'.format(n, time.time() - start))
+    
+    avg_llb_gen_err[i] = llb_gen_err.mean()
+    std_llb_gen_err[i] = llb_gen_err.std()
+    avg_map_gen_err[i] = map_gen_err.mean()
+    std_map_gen_err[i] = map_gen_err.std()
+    avg_entropy[i] = entropy_array.mean()
+    std_entropy[i] = entropy_array.std()
+    return
+       
 def main():
 
     parser = argparse.ArgumentParser(description='last layer Bayesian')
@@ -252,6 +313,8 @@ def main():
     parser.add_argument('--cuda', action='store_true',default=False,
                         help='flag for CUDA training')
 
+    parser.add_argument('--train-epochs', type=int, default=5000,
+                        help='number of epochs to find MAP')
 
     args = parser.parse_args()
     torch.manual_seed(args.seed)
@@ -274,56 +337,40 @@ def main():
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
-    avg_llb_gen_err = np.array([])
-    std_llb_gen_err = np.array([])
-    avg_map_gen_err = np.array([])
-    std_map_gen_err = np.array([])
-    avg_entropy = np.array([])
-    std_entropy = np.array([])
-
     n_range = np.round(1/np.linspace(1/200, 1/10000, args.num_n))
 
-    for n in n_range:
+    # We do each n in parallel
+    manager = Manager()
+    m_avg_llb_gen_err = manager.list(n_range)
+    m_std_llb_gen_err = manager.list(n_range)
+    m_avg_map_gen_err = manager.list(n_range)
+    m_std_map_gen_err = manager.list(n_range)
+    m_avg_entropy = manager.list(n_range)
+    m_std_entropy = manager.list(n_range)
+    
+    jobs = []
+    
+    for i in range(len(n_range)):
+        n = n_range[i]
+        print("Starting job [n = {0}]".format(n))
+        p = Process(target=run_worker, args=(i, n, m_avg_llb_gen_err, m_std_llb_gen_err,
+                                            m_avg_map_gen_err, m_std_map_gen_err, m_avg_entropy, 
+                                            m_std_entropy, args))
+        jobs.append(p)
+        p.start()
 
-        map_gen_err = np.empty(args.MCs)
-        llb_gen_err = np.empty(args.MCs)
-        entropy_array = np.empty(args.MCs)
-
-        args.n = n
-
-        for mc in range(0, args.MCs):
-
-            train_loader, valid_loader, test_loader, oracle_mse, entropy = get_data(args)
-            entropy_array[mc] = entropy
-
-            X_train = train_loader.dataset[:][0]
-            Y_train = train_loader.dataset[:][1]
-            X_valid = valid_loader.dataset[:][0]
-            Y_valid = valid_loader.dataset[:][1]
-            X_test = test_loader.dataset[:][0]
-            Y_test = test_loader.dataset[:][1]
-
-            model = map_train(args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test, oracle_mse)
-            
-            model.eval()
-            map_gen_err[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
-
-            llb_gen_err[mc] = lastlayer_approxinf(model, args, X_train, Y_train, X_valid, Y_valid, X_test, Y_test) - entropy
-
-            print('n = {}, mc {}, gen error: map {}, bayes last layer {}'
-                  .format(n, mc, map_gen_err[mc], llb_gen_err[mc]))
-
-
-        print('average gen error: MAP {}, bayes {}'
-              .format(map_gen_err.mean(), llb_gen_err.mean()))
-
-        avg_llb_gen_err = np.append(avg_llb_gen_err, llb_gen_err.mean())
-        std_llb_gen_err = np.append(std_llb_gen_err, llb_gen_err.std())
-        avg_map_gen_err = np.append(avg_map_gen_err, map_gen_err.mean())
-        std_map_gen_err = np.append(std_map_gen_err, map_gen_err.std())
-        avg_entropy = np.append(avg_entropy, entropy_array.mean())
-        std_entropy = np.append(std_entropy, entropy_array.std())
-
+    # block on all jobs completing
+    for p in jobs:
+        p.join()
+    
+    # Convert the managed shared lists into numpy arrays
+    avg_llb_gen_err = np.array(m_avg_llb_gen_err)
+    std_llb_gen_err = np.array(m_std_llb_gen_err)
+    avg_map_gen_err = np.array(m_avg_map_gen_err)
+    std_map_gen_err = np.array(m_std_map_gen_err)
+    avg_entropy = np.array(m_avg_entropy)
+    std_entropy = np.array(m_std_entropy)
+    
     print('avg LLB gen err {}, std {}'.format(avg_llb_gen_err, std_llb_gen_err))
     print('avg MAP gen err {}, std {}'.format(avg_map_gen_err, std_map_gen_err))
 
@@ -357,7 +404,7 @@ def main():
     plt.title('map slope {:.2f}, parameter count {}, LLB slope {:.2f}, true RLCT {}'.format(map_slope, args.total_param_count, llb_slope, args.trueRLCT))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
-    plt.show()
+    # DM: plt.show()
 
     torch.save(args,'taskid{}_args.pt'.format(args.taskid))
     torch.save(save_objects,'taskid{}_results.pt'.format(args.taskid))
