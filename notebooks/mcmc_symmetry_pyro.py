@@ -77,9 +77,10 @@ def run_inference(model, args, X, Y, beta, beta_num, samples):
                 jit_compile=args.jit)
     mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
     mcmc.run(X, Y, H, beta, args.prior_sd)
+    print("\n[beta = {}]".format(beta))
     mcmc.summary(prob=0.5)
 
-    torch.save(mcmc, '{}/mcmc_beta{}.pt'.format(args.path, beta_num))
+    torch.save(mcmc.get_samples(), '{}/mcmc_beta{}_samples.pt'.format(args.path, beta_num))
     torch.save(time.time() - start, '{}/mcmc_beta{}_time_secs.pt'.format(args.path, beta_num))
     samples[beta_num] = mcmc.get_samples()
 
@@ -178,21 +179,23 @@ def main(args):
 
     estimates = [expected_nll_posterior(samples[i], X, Y) for i in range(len(samples))]
     regr = LinearRegression(fit_intercept=True)
-    regr.fit((1 / betas).reshape(args.num_betas, 1), estimates)
-    b_robust = regr.intercept_
-    m_robust = regr.coef_[0]
+    one_on_betas = (1 / betas).reshape(args.num_betas, 1)
+    regr.fit(one_on_betas, estimates)
+    score = regr.score(one_on_betas, estimates)
+    b_ols = regr.intercept_
+    m_ols = regr.coef_[0]
 
-    torch.save(m_robust, '{}/rlct_estimate.pt'.format(path))
-    print('rlct estimate {}'.format(m_robust))
+    torch.save(m_ols, '{}/rlct_estimate.pt'.format(path))
+    print('RLCT estimate {} with r2 coeff {}'.format(m_ols, score))
 
     #rlct_true = (math.floor(math.sqrt(H)) ** 2 + math.floor(math.sqrt(H)) + H) / (4 * math.sqrt(H) + 2)
     #torch.save(rlct_true, '{}/rlct_true.pt'.format(path))
     #print('rlct true {}'.format(rlct_true))
 
     plt.figure()
-    plt.title("E_{D_n}E^beta_w[nL_n(w)] against 1/beta")
-    #plt.scatter(1/betas, estimates)
-    plt.plot(1/betas, [m_robust * x + b_robust for x in 1/betas], label='robust')
+    plt.title("E^beta_w[nL_n(w)] against 1/beta for single dataset")
+    plt.scatter(1/betas, np.array(estimates))
+    plt.plot(1/betas, [m_ols * x + b_ols for x in 1/betas], label='ols')
     plt.legend(loc='best')
     plt.savefig("{}/linfit.png".format(path))
 
@@ -242,12 +245,12 @@ if __name__ == "__main__":
     if args.target_accept_prob > 0.85:
         tap_str = 'L'
 
-    args.path = args.save_prefix + '/{}h{}sd{}xmax{}tap{}'.format(args.experiment_id,args.num_hidden, sd_str, args.x_max, tap_str)
+    args.path = args.save_prefix + '/{}'.format(args.experiment_id,args.num_hidden, sd_str, args.x_max, tap_str)
     if not os.path.exists(args.path):
         os.makedirs(args.path)
 
     # save simulation setting
-    torch.save(args_dict, '{}/config.pt'.format(args.path))
+    torch.save(args, '{}/args.pt'.format(args.path))
 
     # for GPU see https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
     # work around the error "CUDA error: initialization error"
