@@ -115,7 +115,6 @@ class Model(nn.Module):
 def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
 
     model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
-    args.total_param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
@@ -286,21 +285,19 @@ def main():
 
 
     # Model
-    parser.add_argument('--ffrelu-layers',type=int,default=2, help='number of layers in feedforward relu block')
+    parser.add_argument('--ffrelu-layers',type=int, default=1, help='number of layers in feedforward relu block')
 
-    parser.add_argument('--ffrelu-hidden',type=int,default=5, help='number of hidden units in feedforward relu block')
+    parser.add_argument('--ffrelu-hidden',type=int, default=5, help='number of hidden units in feedforward relu block')
 
     parser.add_argument('--rr-hidden', type=int, default=3, help='number of hidden units in final reduced regression layers')
 
     parser.add_argument('--minibatch', type=int, default=0, help='1 if use minbatch sgd for map training')
 
-    parser.add_argument('--train-epochs', type=int, default=5000,
-                        help='number of epochs to find MAP')
+    parser.add_argument('--train-epochs', type=int, default=5000, help='number of epochs to find MAP')
 
     parser.add_argument('--early-stopping', type=int, default=0, help='1 to employ early stopping in map training based on validation loss')
 
-    parser.add_argument('--log-interval', type=int, default=500, metavar='N',
-                        help='how many batches to wait before logging training status')
+    parser.add_argument('--log-interval', type=int, default=500, metavar='N', help='how many batches to wait before logging training status')
 
     parser.add_argument('--weight-decay', type=float, default=5e-4)
 
@@ -308,19 +305,15 @@ def main():
 
     parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
 
-    parser.add_argument('--R', type=int, default=1000,
-                        help='number of MC draws from approximate posterior')
+    parser.add_argument('--R', type=int, default=1000, help='number of MC draws from approximate posterior')
 
-    parser.add_argument('--MCs', type=int, default=20,
-                        help='number of times to split into train-test')
+    parser.add_argument('--MCs', type=int, default=20, help='number of times to split into train-test')
 
-    parser.add_argument('--num-n', type=int, default=10,
-                        help='number of sample sizes')
+    parser.add_argument('--num-n', type=int, default=10, help='number of sample sizes')
 
     parser.add_argument('--seed', type=int, default=43)
 
-    parser.add_argument('--cuda', action='store_true',default=False,
-                        help='flag for CUDA training')
+    parser.add_argument('--cuda', action='store_true',default=False, help='flag for CUDA training')
 
     args = parser.parse_args()
     torch.manual_seed(args.seed)
@@ -336,12 +329,15 @@ def main():
     else:
         args.realizable = True
 
+
+    init_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
+    args.total_param_count = sum(p.numel() for p in init_model.parameters() if p.requires_grad)
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim) # number of parameters in reduced rank regression layers
     H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
-    n_range = np.rint(1/np.linspace(1/200, 1/10000, args.num_n)).astype(int)
+    n_range = np.rint(1/np.linspace(1/200, 1/1000, args.num_n)).astype(int)
 
     # We do each n in parallel
     manager = Manager()

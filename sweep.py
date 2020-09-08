@@ -13,7 +13,7 @@ def main(taskid):
         'output-dim': [3, 10],
         'rr-hidden': [3, 10],
         'ffrelu-hidden': [5, 10],
-        'ffrelu-layers': [2, 10],
+        'ffrelu-layers': [1, 5],
         'minibatch': [0, 1]
     }
     keys, values = zip(*hyperparameter_config.items())
@@ -21,7 +21,7 @@ def main(taskid):
     temp = hyperparameter_experiments[taskid]
 
     os.system("python3 lastlayerbayesian.py "
-              "--num-n 3 --MCs 2 --num-warmup 10 --R 100 "
+              # "--num-n 3 --MCs 2 --num-warmup 10 --R 100 "
               "--taskid %s "
               "--X-test-std %s "
               "--realizable %s "
