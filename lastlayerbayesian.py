@@ -105,8 +105,6 @@ class Model(nn.Module):
             nn.Linear(rr_hidden, output_dim, bias=False) # B
         )
 
-
-
     def forward(self, x):
         x = self.feature_map(x)
         return self.rr(x)
@@ -196,20 +194,28 @@ def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test):
 
 def lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test):
     
+    Bmap = list(model.parameters())[-1]
+    Amap = list(model.parameters())[-2]
+    
     transformed_X_train = model.feature_map(X_train)
     transformed_X_test = model.feature_map(X_test)
-
-    beta = 1.0
+    
+    # TODO: what is the effect of this bug?
+    # if args.Y_train_mcmc_torchlong == 1:
+    #     Y_train = torch.as_tensor(Y_train, dtype=torch.long)
 
     kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup, disable_progbar=True)
-    mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta)
+    if args.mcmc_prior_map == 1:
+        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=Bmap, Amap=Amap)
+    else:
+        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=None, Amap=None)
     sampled_weights = mcmc.get_samples()
 
     pred_prob = 0
     output_dim = Y_train.shape[1]
     for r in range(0, args.R):
-        mean = torch.matmul(torch.matmul(transformed_X_test, sampled_weights['a'][r,:,:]), sampled_weights['b'][r,:,:])
+        mean = torch.matmul(torch.matmul(transformed_X_test, sampled_weights['A'][r,:,:]), sampled_weights['B'][r,:,:])
         pred_prob += (2 * np.pi) ** (-output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
 
     return -torch.log(pred_prob / args.R).mean()
@@ -241,7 +247,9 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
         Y_test = test_loader.dataset[:][1]
 
         model = map_train(args, train_loader, valid_loader, test_loader, oracle_mse)
-
+        Bmap = list(model.parameters())[-1]
+        Amap = list(model.parameters())[-2]
+        
         model.eval()
         G_map[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
@@ -303,6 +311,8 @@ def main():
 
     # MCMC
 
+    parser.add_argument('--mcmc-prior-map', type=int, default=0, help='1 if mcmc prior should be centered at map')
+    
     parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
 
     parser.add_argument('--R', type=int, default=1000, help='number of MC draws from approximate posterior')

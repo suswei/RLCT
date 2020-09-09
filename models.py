@@ -78,44 +78,58 @@ class reducedrank(nn.Module):
         return x
 
 
-def pyro_tanh(X, D_H, beta):
+def pyro_tanh(X, D_H, beta, Bmap=None, Amap=None):
 
     D_X = X.shape[1]
 
     # sample first layer (we put unit normal priors on all weights)
-    w = pyro.sample("w", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
-    z1 = torch.tanh(torch.matmul(X, w))   # N D_H  <= first layer of activations
+    if Amap is not None:
+        A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
+    else:
+        A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+    z1 = torch.tanh(torch.matmul(X, A))   # N D_H  <= first layer of activations
 
     # sample second layer
-    q = pyro.sample("q", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
-    z2 = torch.matmul(z1, q)
+    if Bmap is not None:
+        B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, 1))))  # D_H D_H
+    else:
+        B = pyro.sample("B", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
+    z2 = torch.matmul(z1, B)
 
     # TODO: transform not working
     # return pyro.sample("Y", dist.TransformedDistribution(dist.Normal(z2, 1.0), transforms.PowerTransform(beta)))
     return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
 
-def conditioned_pyro_tanh(pyro_tanh, X,Y,D_H,beta):
-    return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta)
+def conditioned_pyro_tanh(pyro_tanh, X, Y, D_H, beta, Bmap, Amap):
+    
+    return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta, Bmap, Amap)
 
 
-def pyro_rr(X, Y, D_H, beta):
+def pyro_rr(X, Y, D_H, beta, Bmap=None, Amap=None):
 
     D_X = X.shape[1]
     D_Y = Y.shape[1]
 
     # sample first layer (we put unit normal priors on all weights)
-    a = pyro.sample("a", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
-    z1 = torch.tanh(torch.matmul(X, a))   # N D_H  <= first layer of activations
+    if Amap is not None:
+        A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
+    else:
+        A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+    z1 = torch.matmul(X, A)   
 
     # sample second layer
-    b = pyro.sample("b", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_H
-    z2 = torch.matmul(z1, b)
+    if Bmap is not None:
+        B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
+    else:
+        B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
+    z2 = torch.matmul(z1, B)
 
     # TODO: transform not working
     # return pyro.sample("Y", dist.TransformedDistribution(dist.Normal(z2, 1.0), transforms.PowerTransform(beta)))
     return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
 
-def conditioned_pyro_rr(pyro_rr, X,Y,D_H,beta):
-    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta)
+def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap):
+    
+    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap)
