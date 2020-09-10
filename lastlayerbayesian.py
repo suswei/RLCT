@@ -201,8 +201,8 @@ def lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test):
     transformed_X_test = model.feature_map(X_test)
     
     # TODO: what is the effect of this bug?
-    # if args.Y_train_mcmc_torchlong == 1:
-    #     Y_train = torch.as_tensor(Y_train, dtype=torch.long)
+    if args.Y_train_mcmc_torchlong == 1:
+        Y_train = torch.as_tensor(Y_train, dtype=torch.long)
 
     kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup, disable_progbar=True)
@@ -311,6 +311,8 @@ def main():
 
     # MCMC
 
+    parser.add_argument('--Y-train-mcmc-torchlong', type=int, default=0, help='1 if convert Y to dtype=torch.long for MCMC')
+
     parser.add_argument('--mcmc-prior-map', type=int, default=0, help='1 if mcmc prior should be centered at map')
     
     parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
@@ -347,7 +349,7 @@ def main():
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
 
-    n_range = np.rint(1/np.linspace(1/200, 1/1000, args.num_n)).astype(int)
+    n_range = np.rint(1/np.linspace(1/200, 1/500, args.num_n)).astype(int)
 
     # We do each n in parallel
     manager = Manager()
