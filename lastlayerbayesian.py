@@ -90,15 +90,6 @@ class Model(nn.Module):
 
         self.feature_map = nn.Sequential(*blocks)
 
-        # # TODO: variable layers
-        # self.feature_map = nn.Sequential(
-        #     nn.Linear(input_dim, ffrelu_hidden),
-        #     nn.ReLU(),
-        #     nn.Linear(ffrelu_hidden, ffrelu_hidden),
-        #     nn.ReLU(),
-        #     nn.Linear(ffrelu_hidden, input_dim),
-        # )
-
         # TODO: linear layer alternative?
         self.rr = nn.Sequential(
             nn.Linear(input_dim, rr_hidden, bias=False), # A
@@ -199,10 +190,6 @@ def lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test):
     
     transformed_X_train = model.feature_map(X_train)
     transformed_X_test = model.feature_map(X_test)
-    
-    # TODO: what is the effect of this bug?
-    if args.Y_train_mcmc_torchlong == 1:
-        Y_train = torch.as_tensor(Y_train, dtype=torch.long)
 
     kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup, disable_progbar=True)
@@ -221,10 +208,10 @@ def lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test):
     return -torch.log(pred_prob / args.R).mean()
 
 
-def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, std_entropy, args):
+def run_worker(i, n, G_llbs, G_maps, G_llls, entropys, args):
 
-    G_map = np.empty(args.MCs)
     G_llb = np.empty(args.MCs)
+    G_map = np.empty(args.MCs)
     G_lll = np.empty(args.MCs)
     entropy_array = np.empty(args.MCs)
 
@@ -247,32 +234,27 @@ def run_worker(i, n, avg_G_llb, std_G_llb, avg_G_map, std_G_map, avg_entropy, st
         Y_test = test_loader.dataset[:][1]
 
         model = map_train(args, train_loader, valid_loader, test_loader, oracle_mse)
-        Bmap = list(model.parameters())[-1]
-        Amap = list(model.parameters())[-2]
         
         model.eval()
         G_map[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
-        # G_lll[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
+        G_lll[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
         G_llb[mc] = lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
-        print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}'
-              .format(n, mc, G_map[mc], G_llb[mc]))
-        # print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}, last layer laplace {}'
-        #       .format(n, mc, G_map[mc], G_llb[mc], G_lll[mc]))
+        print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}, last layer laplace {}'
+              .format(n, mc, G_map[mc], G_llb[mc], G_lll[mc]))
 
-    print('[n = {}] average gen error: MAP {}, last layer mcmc {}'
-          .format(n, G_map.mean(), G_llb.mean()))
+    print('[n = {}] average gen error: MAP {}, last layer mcmc {}, last layer laplace {}'
+          .format(n, G_map.mean(), G_llb.mean(), G_lll.mean()))
 
     print('[n = {}] time taken(s): {}'.format(n, time.time() - start))
-    
-    avg_G_llb[i] = G_llb.mean()
-    std_G_llb[i] = G_llb.std()
-    avg_G_map[i] = G_map.mean()
-    std_G_map[i] = G_map.std()
-    avg_entropy[i] = entropy_array.mean()
-    std_entropy[i] = entropy_array.std()
+
+    G_llbs[i] = G_llb
+    G_llls[i] = G_lll
+    G_maps[i] = G_map
+    entropys[i] = entropy_array
+
     return
 
 
@@ -311,8 +293,6 @@ def main():
 
     # MCMC
 
-    parser.add_argument('--Y-train-mcmc-torchlong', type=int, default=0, help='1 if convert Y to dtype=torch.long for MCMC')
-
     parser.add_argument('--mcmc-prior-map', type=int, default=0, help='1 if mcmc prior should be centered at map')
     
     parser.add_argument('--num-warmup', type=int, default=10000, help='burn in')
@@ -321,7 +301,7 @@ def main():
 
     parser.add_argument('--MCs', type=int, default=20, help='number of times to split into train-test')
 
-    parser.add_argument('--num-n', type=int, default=10, help='number of sample sizes')
+    parser.add_argument('--num-n', type=int, default=10, help='number of sample sizes for learning curve')
 
     parser.add_argument('--seed', type=int, default=43)
 
@@ -341,55 +321,59 @@ def main():
     else:
         args.realizable = True
 
-
     init_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden)
     args.total_param_count = sum(p.numel() for p in init_model.parameters() if p.requires_grad)
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim) # number of parameters in reduced rank regression layers
     H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
+    torch.save(args,'taskid{}_args.pt'.format(args.taskid))
 
-    n_range = np.rint(1/np.linspace(1/200, 1/500, args.num_n)).astype(int)
+    n_range = np.rint(1/np.linspace(1/200, 1/2000, args.num_n)).astype(int)
 
     # We do each n in parallel
     manager = Manager()
-    m_avg_G_llb = manager.list(n_range)
-    m_std_G_llb = manager.list(n_range)
-    m_avg_G_map = manager.list(n_range)
-    m_std_G_map = manager.list(n_range)
-    m_avg_entropy = manager.list(n_range)
-    m_std_entropy = manager.list(n_range)
-    
+
+    m_G_llbs = manager.list(n_range)
+    m_G_maps = manager.list(n_range)
+    m_G_llls = manager.list(n_range)
+    m_entropys = manager.list(n_range)
+
     jobs = []
     
     for i in range(len(n_range)):
         n = n_range[i]
         print("Starting job [n = {0}]".format(n))
-        p = Process(target=run_worker, args=(i, n, m_avg_G_llb, m_std_G_llb,
-                                            m_avg_G_map, m_std_G_map, m_avg_entropy, 
-                                            m_std_entropy, args))
+        p = Process(target=run_worker, args=(i, n, m_G_llbs, m_G_maps, m_G_llls, m_entropys, args))
+
         jobs.append(p)
         p.start()
 
     # block on all jobs completing
     for p in jobs:
         p.join()
-    
-    # Convert the managed shared lists into numpy arrays
-    avg_G_llb = np.array(m_avg_G_llb)
-    std_G_llb = np.array(m_std_G_llb)
-    avg_G_map = np.array(m_avg_G_map)
-    std_G_map = np.array(m_std_G_map)
-    avg_entropy = np.array(m_avg_entropy)
-    std_entropy = np.array(m_std_entropy)
-    
-    print('avg LLB gen err {}, std {}'.format(avg_G_llb, std_G_llb))
-    print('avg MAP gen err {}, std {}'.format(avg_G_map, std_G_map))
 
-    # varaibles to save for producing graphics/table later
-    save_objects = (n_range, avg_G_llb,std_G_llb, avg_G_map, std_G_map)
+    # variables to save for producing graphics/table later
+    G_llbs = list(m_G_llbs)
+    G_maps = list(m_G_maps)
+    G_llls = list(m_G_llls)
+    entropys = list(m_entropys)
 
-    # summarize results
+    results = dict()
+    results['llbs'] = G_llbs
+    results['maps'] = G_maps
+    results['llls'] = G_llls
+    results['entropys'] = entropys
+    torch.save(results,'taskid{}_results.pt'.format(args.taskid))
+
+    avg_G_map = [i.mean() for i in G_maps]
+    avg_G_llb = [i.mean() for i in G_llbs]
+    avg_G_lll = [i.mean() for i in G_llls]
+    std_G_map = [i.std() for i in G_maps]
+    std_G_llb = [i.std() for i in G_llbs]
+    std_G_lll = [i.std() for i in G_llls]
+
+    #  get slopes of learning curves
     if args.realizable:
         ols_map = OLS(avg_G_map, 1 / n_range).fit()
         map_slope = ols_map.params[0]
@@ -397,7 +381,13 @@ def main():
         ols_llb = OLS(avg_G_llb, 1 / n_range).fit()
         llb_intercept = 0.0
         llb_slope = ols_llb.params[0]
+
+        ols_lll = OLS(avg_G_lll, 1 / n_range).fit()
+        lll_intercept = 0.0
+        lll_slope = ols_lll.params[0]
+
     else:
+
         ols_map = OLS(avg_G_map, add_constant(1 / n_range)).fit()
         map_slope = ols_map.params[1]
 
@@ -405,21 +395,23 @@ def main():
         llb_intercept = ols_llb.params[0]
         llb_slope = ols_llb.params[1]
 
+        ols_lll = OLS(avg_G_lll, add_constant(1 / n_range)).fit()
+        lll_intercept = ols_lll.params[0]
+        lll_slope = ols_lll.params[1]
+
     print('estimated RLCT {}'.format(llb_slope))
 
     # learning curves
     fig, ax = plt.subplots()
+    ax.errorbar(1/n_range, avg_G_lll, yerr=std_G_lll, fmt='-o', c='r', label='En G(n) for last layer laplace')
     ax.errorbar(1/n_range, avg_G_llb, yerr=std_G_llb, fmt='-o', c='r', label='En G(n) for last layer mcmc')
     ax.errorbar(1/n_range, avg_G_map, yerr=std_G_map, fmt='-o', c='g', label='En G(n) for MAP')
     plt.plot(1 / n_range, llb_intercept + llb_slope / n_range, 'r--', label='ols fit for last layer mcmc')
     plt.xlabel('1/n')
-    plt.title('map slope {:.2f}, parameter count {}, llb slope {:.2f}, true RLCT {}'.format(map_slope, args.total_param_count, llb_slope, args.trueRLCT))
+    plt.title('map slope {:.2f}, total parameter count {}, llb slope {:.2f}, lll slope {:.2f}, true RLCT {}'.format(map_slope, args.total_param_count, llb_slope, lll_slope, args.trueRLCT))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
     # DM: plt.show()
-
-    torch.save(args,'taskid{}_args.pt'.format(args.taskid))
-    torch.save(save_objects,'taskid{}_results.pt'.format(args.taskid))
 
 
 if __name__ == "__main__":
