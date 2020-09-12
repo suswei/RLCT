@@ -146,16 +146,17 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
     return model
 
 
-def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test):
-
-    transformed_X_test = model.feature_map(X_test)
+def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test, lastlayeronly=False):
 
     A = list(model.parameters())[-2]
     A_map = A.view(-1).data.numpy()
     B = list(model.parameters())[-1]
     B_map = B.view(-1).data.numpy()
-
-    W_map = np.concatenate((A_map, B_map))
+    
+    if lastlayeronly:
+        W_map = B_map
+    else:
+        W_map = np.concatenate((A_map, B_map))
 
     # get negative log posterior = negative log likelihood + negative log prior
     y_pred = model(X_train)
@@ -164,7 +165,10 @@ def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test):
     nlp = 1 / 2 * A.flatten() @ (args.weight_decay * torch.eye(A.numel())) @ A.flatten() + 1 / 2 * B.flatten() @ (args.weight_decay * torch.eye(B.numel())) @ B.flatten()
     loss = nll + nlp
 
-    Lambda = exact_hessian(loss, [A,B])  # The Hessian of the negative log-posterior
+    if lastlayeronly:
+        Lambda = exact_hessian(loss, [B])  # The Hessian of the negative log-posterior
+    else:
+        Lambda = exact_hessian(loss, [A,B])  # The Hessian of the negative log-posterior
     Sigma = torch.inverse(Lambda).detach().numpy()
 
     # posterior over w approximated as N(w_map, Sigma)
@@ -172,12 +176,20 @@ def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test):
 
     with torch.no_grad():
 
+        transformed_X_test = model.feature_map(X_test)
+        if lastlayeronly:
+            transformed_X_test = np.matmul(transformed_X_test, A.detach().numpy())
+            
         pred_prob = 0
         for r in range(0, args.R):
-            sampled_a = sampled_weights[r,0:(args.rr_hidden*args.input_dim)].reshape(args.input_dim,args.rr_hidden)
-            sampled_b = sampled_weights[r,-(args.rr_hidden*args.output_dim):].reshape(args.rr_hidden,args.output_dim)
-
-            mean = np.matmul(np.matmul(transformed_X_test.detach().numpy(),sampled_a),sampled_b)
+            if lastlayeronly:
+                sampled_b = sampled_weights[r,:].reshape(args.rr_hidden,args.output_dim)
+                mean = np.matmul(transformed_X_test, sampled_b)
+            else:
+                sampled_a = sampled_weights[r,0:(args.rr_hidden*args.input_dim)].reshape(args.input_dim,args.rr_hidden)
+                sampled_b = sampled_weights[r,-(args.rr_hidden*args.output_dim):].reshape(args.rr_hidden,args.output_dim)
+                mean = np.matmul(np.matmul(transformed_X_test, sampled_a), sampled_b)
+                
             pred_prob += (2 * np.pi) ** (-args.output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
 
     return -torch.log(pred_prob / args.R).mean()
@@ -208,11 +220,12 @@ def lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test):
     return -torch.log(pred_prob / args.R).mean()
 
 
-def run_worker(i, n, G_llbs, G_maps, G_llls, entropys, args):
+def run_worker(i, n, G_mcmc_rrs, G_maps, G_laplace_rrs, G_laplace_lasts, entropys, args):
 
-    G_llb = np.empty(args.MCs)
+    G_mcmc_rr = np.empty(args.MCs)
     G_map = np.empty(args.MCs)
-    G_lll = np.empty(args.MCs)
+    G_laplace_rr = np.empty(args.MCs)
+    G_laplace_last = np.empty(args.MCs)
     entropy_array = np.empty(args.MCs)
 
     args.n = n
@@ -238,20 +251,23 @@ def run_worker(i, n, G_llbs, G_maps, G_llls, entropys, args):
         model.eval()
         G_map[mc] = -torch.log((2*np.pi)**(-args.output_dim /2) * torch.exp(-(1/2) * torch.norm(Y_test-model(X_test), dim=1)**2)).mean() - entropy
 
-        G_lll[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
+        G_laplace_rr[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
-        G_llb[mc] = lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test) - entropy
+        G_laplace_last[mc] = lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test, lastlayeronly=True) - entropy
 
-        print('[n = {}] mc {}, gen error: map {}, last layer mcmc {}, last layer laplace {}'
-              .format(n, mc, G_map[mc], G_llb[mc], G_lll[mc]))
+        G_mcmc_rr[mc] = lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
-    print('[n = {}] average gen error: MAP {}, last layer mcmc {}, last layer laplace {}'
-          .format(n, G_map.mean(), G_llb.mean(), G_lll.mean()))
+        print('[n = {}, mc {}] gen error: map {:.2f}, rr layer mcmc {:.2f}, rr layer laplace {:.2f}, last layer laplace {:.2f}'
+              .format(n, mc, G_map[mc], G_mcmc_rr[mc], G_laplace_rr[mc], G_laplace_last[mc]))
+
+    print('[n = {}] average gen error: MAP {}, last layer mcmc {}, rr layer laplace {}, last layer laplace {}'
+          .format(n, G_map.mean(), G_mcmc_rr.mean(), G_laplace_rr.mean(), G_laplace_last.mean()))
 
     print('[n = {}] time taken(s): {}'.format(n, time.time() - start))
 
-    G_llbs[i] = G_llb
-    G_llls[i] = G_lll
+    G_mcmc_rrs[i] = G_mcmc_rr
+    G_laplace_rrs[i] = G_laplace_rr
+    G_laplace_lasts[i] = G_laplace_last
     G_maps[i] = G_map
     entropys[i] = entropy_array
 
@@ -334,9 +350,10 @@ def main():
     # We do each n in parallel
     manager = Manager()
 
-    m_G_llbs = manager.list(n_range)
+    m_G_mcmc_rrs = manager.list(n_range)
     m_G_maps = manager.list(n_range)
-    m_G_llls = manager.list(n_range)
+    m_G_laplace_rrs = manager.list(n_range)
+    m_G_laplace_lasts = manager.list(n_range)
     m_entropys = manager.list(n_range)
 
     jobs = []
@@ -344,7 +361,7 @@ def main():
     for i in range(len(n_range)):
         n = n_range[i]
         print("Starting job [n = {0}]".format(n))
-        p = Process(target=run_worker, args=(i, n, m_G_llbs, m_G_maps, m_G_llls, m_entropys, args))
+        p = Process(target=run_worker, args=(i, n, m_G_mcmc_rrs, m_G_maps, m_G_laplace_rrs, m_G_laplace_lasts, m_entropys, args))
 
         jobs.append(p)
         p.start()
@@ -354,61 +371,78 @@ def main():
         p.join()
 
     # variables to save for producing graphics/table later
-    G_llbs = list(m_G_llbs)
+    G_mcmc_rrs = list(m_G_mcmc_rrs)
     G_maps = list(m_G_maps)
-    G_llls = list(m_G_llls)
+    G_laplace_rrs = list(m_G_laplace_rrs)
+    G_laplace_lasts = list(m_G_laplace_lasts)
     entropys = list(m_entropys)
 
     results = dict()
-    results['llbs'] = G_llbs
-    results['maps'] = G_maps
-    results['llls'] = G_llls
-    results['entropys'] = entropys
+    results['mcmc_rrl'] = G_mcmc_rrs
+    results['map'] = G_maps
+    results['laplace_rr'] = G_laplace_rrs
+    results['laplace_last'] = G_laplace_lasts
+    results['entropy'] = entropys
     torch.save(results,'taskid{}_results.pt'.format(args.taskid))
 
     avg_G_map = [i.mean() for i in G_maps]
-    avg_G_llb = [i.mean() for i in G_llbs]
-    avg_G_lll = [i.mean() for i in G_llls]
+    avg_G_mcmc_rr = [i.mean() for i in G_mcmc_rrs]
+    avg_G_laplace_rr = [i.mean() for i in G_laplace_rrs]
+    avg_G_laplace_last = [i.mean() for i in G_laplace_lasts]
+    
     std_G_map = [i.std() for i in G_maps]
-    std_G_llb = [i.std() for i in G_llbs]
-    std_G_lll = [i.std() for i in G_llls]
-
+    std_G_mcmc_rr = [i.std() for i in G_mcmc_rrs]
+    std_G_laplace_rr = [i.std() for i in G_laplace_rrs]
+    std_G_laplace_last = [i.std() for i in G_laplace_lasts]
+    
     #  get slopes of learning curves
     if args.realizable:
         ols_map = OLS(avg_G_map, 1 / n_range).fit()
         map_slope = ols_map.params[0]
 
-        ols_llb = OLS(avg_G_llb, 1 / n_range).fit()
-        llb_intercept = 0.0
-        llb_slope = ols_llb.params[0]
+        ols_mcmc_rr = OLS(avg_G_mcmc_rr, 1 / n_range).fit()
+        mcmc_rr_intercept = 0.0
+        mcmc_rr_slope = ols_mcmc_rr.params[0]
 
-        ols_lll = OLS(avg_G_lll, 1 / n_range).fit()
-        lll_intercept = 0.0
-        lll_slope = ols_lll.params[0]
+        ols_laplace_rr = OLS(avg_G_laplace_rr, 1 / n_range).fit()
+        laplace_rr_intercept = 0.0
+        laplace_rr_slope = ols_laplace_rr.params[0]
+
+        ols_laplace_last = OLS(avg_G_laplace_last, 1 / n_range).fit()
+        laplace_last_intercept = 0.0
+        laplace_last_slope = ols_laplace_last.params[0]
 
     else:
 
         ols_map = OLS(avg_G_map, add_constant(1 / n_range)).fit()
         map_slope = ols_map.params[1]
 
-        ols_llb = OLS(avg_G_llb, add_constant(1 / n_range)).fit()
-        llb_intercept = ols_llb.params[0]
-        llb_slope = ols_llb.params[1]
+        ols_mcmc_rr = OLS(avg_G_mcmc_rr, add_constant(1 / n_range)).fit()
+        mcmc_rr_intercept = ols_mcmc_rr.params[0]
+        mcmc_rr_slope = ols_mcmc_rr.params[1]
 
-        ols_lll = OLS(avg_G_lll, add_constant(1 / n_range)).fit()
-        lll_intercept = ols_lll.params[0]
-        lll_slope = ols_lll.params[1]
+        ols_laplace_rr = OLS(avg_G_laplace_rr, add_constant(1 / n_range)).fit()
+        laplace_rr_intercept = ols_laplace_rr.params[0]
+        laplace_rr_slope = ols_laplace_rr.params[1]
 
-    print('estimated RLCT {}'.format(llb_slope))
-
+        ols_laplace_last = OLS(avg_G_laplace_last, add_constant(1 / n_range)).fit()
+        laplace_last_intercept = ols_laplace_last.params[0]
+        laplace_last_slope = ols_laplace_last.params[0]
+        
     # learning curves
     fig, ax = plt.subplots()
-    ax.errorbar(1/n_range, avg_G_lll, yerr=std_G_lll, fmt='-o', c='r', label='En G(n) for last layer laplace')
-    ax.errorbar(1/n_range, avg_G_llb, yerr=std_G_llb, fmt='-o', c='r', label='En G(n) for last layer mcmc')
+    # ax.errorbar(1/n_range, avg_G_laplace_rr, yerr=std_G_laplace_rr, fmt='-o', c='k', label='En G(n) for rr layers laplace')
+    # ax.errorbar(1/n_range, avg_G_laplace_last, yerr=std_G_laplace_last, fmt='-o', c='b', label='En G(n) for last layer laplace')
     ax.errorbar(1/n_range, avg_G_map, yerr=std_G_map, fmt='-o', c='g', label='En G(n) for MAP')
-    plt.plot(1 / n_range, llb_intercept + llb_slope / n_range, 'r--', label='ols fit for last layer mcmc')
+    ax.errorbar(1/n_range, avg_G_mcmc_rr, yerr=std_G_mcmc_rr, fmt='-o', c='r', label='En G(n) for last layer mcmc')
+    plt.plot(1 / n_range, mcmc_rr_intercept + mcmc_rr_slope / n_range, 'r--', label='ols fit for last layer mcmc')
     plt.xlabel('1/n')
-    plt.title('map slope {:.2f}, total parameter count {}, llb slope {:.2f}, lll slope {:.2f}, true RLCT {}'.format(map_slope, args.total_param_count, llb_slope, lll_slope, args.trueRLCT))
+    plt.title('map {:.2f}, network dim {}'
+              '\n rr mcmc {:.2f}, rr laplace {:.2f}, rr RLCT {}, rr dim {}'
+              '\n last layer laplace {:.2f}, last layer RLCT {}, last layer dim {}'
+              .format(map_slope, args.total_param_count,
+                      mcmc_rr_slope, laplace_rr_slope, args.trueRLCT, args.w_dim,
+                      laplace_last_slope, args.rr_hidden*args.output_dim/2, args.rr_hidden*args.output_dim))
     plt.legend()
     plt.savefig('taskid{}.png'.format(args.taskid))
     # DM: plt.show()
