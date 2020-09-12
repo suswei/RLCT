@@ -113,7 +113,7 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
         model.train()
         running_loss = 0
         for batch_idx, (data, target) in enumerate(train_loader):
-            y_pred = model(data).squeeze()
+            y_pred = model(data)
             l = (torch.norm(y_pred - target, dim=1)**2).mean()
             l.backward()
             opt.step()
@@ -125,7 +125,7 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
         with torch.no_grad():
             valid_loss = 0
             for batch_idx, (data, target) in enumerate(valid_loader):
-                valid_loss += (torch.norm(model(data).squeeze() - target, dim=1)**2).sum()
+                valid_loss += (torch.norm(model(data) - target, dim=1)**2).sum()
 
         if args.early_stopping:
             early_stopping(valid_loss, model)
@@ -139,7 +139,7 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
             with torch.no_grad():
                 test_loss = 0
                 for batch_idx, (data, target) in enumerate(test_loader):
-                    ytest_pred = model(data).squeeze()
+                    ytest_pred = model(data)
                     test_loss += (torch.norm(ytest_pred - target, dim=1)**2).sum()
             print('MSE: train {:.3f}, validation {:.3f}, test {:.3f}, oracle on test set {:.3f}'.format(running_loss/len(train_loader.dataset), valid_loss/len(valid_loader.dataset), test_loss/len(test_loader.dataset), oracle_mse))
 
@@ -158,7 +158,7 @@ def lastlayerlaplace(model, args, X_train, Y_train, X_test, Y_test):
     W_map = np.concatenate((A_map, B_map))
 
     # get negative log posterior = negative log likelihood + negative log prior
-    y_pred = model(X_train).squeeze()
+    y_pred = model(X_train)
     nll = (torch.norm(y_pred - Y_train, dim=1)**2).mean()
     # Negative-log-prior
     nlp = 1 / 2 * A.flatten() @ (args.weight_decay * torch.eye(A.numel())) @ A.flatten() + 1 / 2 * B.flatten() @ (args.weight_decay * torch.eye(B.numel())) @ B.flatten()
