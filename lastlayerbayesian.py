@@ -13,6 +13,7 @@ from main import *
 from utils import exact_hessian
 
 plt = matplotlib.pyplot
+plt.rcParams["axes.titlesize"] = 8
 
 # DM
 import torch.multiprocessing
@@ -257,7 +258,7 @@ def run_worker(i, n, G_mcmc_rrs, G_maps, G_laplace_rrs, G_laplace_lasts, entropy
 
         G_mcmc_rr[mc] = lastlayermcmc(model, args, X_train, Y_train, X_test, Y_test) - entropy
 
-        print('[n = {}, mc {}] gen error: map {:.2f}, rr layer mcmc {:.2f}, rr layer laplace {:.2f}, last layer laplace {:.2f}'
+        print('[n = {}, mc {}] gen error: map {:.4f}, rr layer mcmc {:.4f}, rr layer laplace {:.4f}, last layer laplace {:.4f}'
               .format(n, mc, G_map[mc], G_mcmc_rr[mc], G_laplace_rr[mc], G_laplace_last[mc]))
 
     print('[n = {}] average gen error: MAP {}, last layer mcmc {}, rr layer laplace {}, last layer laplace {}'
@@ -277,6 +278,8 @@ def run_worker(i, n, G_mcmc_rrs, G_maps, G_laplace_rrs, G_laplace_lasts, entropy
 def main():
 
     parser = argparse.ArgumentParser(description='last layer Bayesian')
+
+    parser.add_argument('--experiment-name', type=str, default='')
 
     parser.add_argument('--taskid', type=int, default=1)
 
@@ -343,7 +346,7 @@ def main():
     H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
     print(args)
-    torch.save(args,'taskid{}_args.pt'.format(args.taskid))
+    torch.save(args,'{}_taskid{}_args.pt'.format(args.experiment_name, args.taskid))
 
     n_range = np.rint(1/np.linspace(1/200, 1/2000, args.num_n)).astype(int)
 
@@ -383,7 +386,7 @@ def main():
     results['laplace_rr'] = G_laplace_rrs
     results['laplace_last'] = G_laplace_lasts
     results['entropy'] = entropys
-    torch.save(results,'taskid{}_results.pt'.format(args.taskid))
+    torch.save(results,'{}_taskid{}_results.pt'.format(args.experiment_name, args.taskid))
 
     avg_G_map = [i.mean() for i in G_maps]
     avg_G_mcmc_rr = [i.mean() for i in G_mcmc_rrs]
@@ -437,14 +440,15 @@ def main():
     ax.errorbar(1/n_range, avg_G_mcmc_rr, yerr=std_G_mcmc_rr, fmt='-o', c='r', label='En G(n) for last layer mcmc')
     plt.plot(1 / n_range, mcmc_rr_intercept + mcmc_rr_slope / n_range, 'r--', label='ols fit for last layer mcmc')
     plt.xlabel('1/n')
-    plt.title('map {:.2f}, network dim {}'
-              '\n rr mcmc {:.2f}, rr laplace {:.2f}, rr RLCT {}, rr dim {}'
-              '\n last layer laplace {:.2f}, last layer RLCT {}, last layer dim {}'
+    # TODO: title doesn't fit
+    plt.title('map {:.4f}, network dim {}'
+              '\n rr mcmc {:.4f}, rr laplace {:.4f}, rr RLCT {}, rr dim {}'
+              '\n last layer laplace {:.4f}, last layer RLCT {}, last layer dim {}'
               .format(map_slope, args.total_param_count,
                       mcmc_rr_slope, laplace_rr_slope, args.trueRLCT, args.w_dim,
                       laplace_last_slope, args.rr_hidden*args.output_dim/2, args.rr_hidden*args.output_dim))
     plt.legend()
-    plt.savefig('taskid{}.png'.format(args.taskid))
+    plt.savefig('{}_taskid{}.png'.format(args.experiment_name, args.taskid))
     # DM: plt.show()
 
 
