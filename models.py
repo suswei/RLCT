@@ -106,30 +106,40 @@ def conditioned_pyro_tanh(pyro_tanh, X, Y, D_H, beta, Bmap, Amap):
     return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta, Bmap, Amap)
 
 
-def pyro_rr(X, Y, D_H, beta, Bmap=None, Amap=None):
+def pyro_rr(X, Y, D_H, beta, Bmap=None, Amap=None, relu=False, lastlayeronly = False):
 
     D_X = X.shape[1]
     D_Y = Y.shape[1]
 
-    # sample first layer (we put unit normal priors on all weights)
-    if Amap is not None:
-        A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
-    else:
-        A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
-    z1 = torch.matmul(X, A)   
+    if lastlayeronly:
+        # sample B
+        if Bmap is not None:
+            B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
+        else:
+            B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
+        z2 = torch.matmul(X, B)
 
-    # sample second layer
-    if Bmap is not None:
-        B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
     else:
-        B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
-    z2 = torch.matmul(z1, B)
 
-    # TODO: transform not working
-    # return pyro.sample("Y", dist.TransformedDistribution(dist.Normal(z2, 1.0), transforms.PowerTransform(beta)))
+        # sample A (we put unit normal priors on all weights)
+        if Amap is not None:
+            A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
+        else:
+            A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+        z1 = torch.matmul(X, A)
+        if relu:
+            z1 = torch.relu(z1)
+
+        # sample B
+        if Bmap is not None:
+            B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
+        else:
+            B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
+        z2 = torch.matmul(z1, B)
+
     return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
 
-def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap):
+def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap, relu):
     
-    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap)
+    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap, relu)
