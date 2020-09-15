@@ -156,8 +156,7 @@ def expected_nll_posterior(samples, X, Y):
 
 def main(args):
     path = args.path
-    H = args.num_hidden
-    n = args.num_samples
+    n = args.num_data # fix 15-9-2020 was args.num_samples
 
     X, Y = get_data_true(args)
 
@@ -203,7 +202,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RLCT_HMC_symmetric")
     parser.add_argument("--experiment-id", nargs="?")
-    parser.add_argument("--num-training-sets", nargs="?", default=2, type=int)
     parser.add_argument("--save-prefix", nargs="?")
     parser.add_argument("--num-samples", nargs="?", default=100000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=30000, type=int)
@@ -220,9 +218,7 @@ if __name__ == "__main__":
     parser.add_argument("--x-max", nargs='?', default=1, type=int)
     parser.add_argument("--target-accept-prob", nargs='?', default=0.8, type=float)
     parser.add_argument("--num-betas", default=8, type=int)
-    parser.add_argument("--jit", action='store_true', default=False)
-    parser.add_argument("--cuda", action='store_true', default=False, help="run this in GPU")
-    
+
     args = parser.parse_args()
     args_dict = vars(args)
     print(args_dict)
@@ -230,22 +226,7 @@ if __name__ == "__main__":
     args_filename = args.save_prefix + '/' + args.experiment_id + '-args.pickle'
     
     # create path
-
-    # standard deviation is float, so may have a decimal point
-    # but that might be annoying for a path, so we'll just encode it as
-    # S for 0.1, M for 1.0 and L for 10.0
-    sd_str = 'S'
-    if args.prior_sd > 2.0:
-        sd_str = 'L'
-    elif args.prior_sd > 0.5:
-        sd_str = 'M'
-
-    # similarly, for target accept prob we'll use S for 0.8 and L for 0.9
-    tap_str = 'S'
-    if args.target_accept_prob > 0.85:
-        tap_str = 'L'
-
-    args.path = args.save_prefix + '/{}'.format(args.experiment_id,args.num_hidden, sd_str, args.x_max, tap_str)
+    args.path = args.save_prefix + '/{}'.format(args.experiment_id)
     if not os.path.exists(args.path):
         os.makedirs(args.path)
 
