@@ -218,6 +218,8 @@ if __name__ == "__main__":
     parser.add_argument("--x-max", nargs='?', default=1, type=int)
     parser.add_argument("--target-accept-prob", nargs='?', default=0.8, type=float)
     parser.add_argument("--num-betas", default=8, type=int)
+    parser.add_argument("--jit", action='store_true', default=False)
+    parser.add_argument("--cuda", action='store_true', default=False, help="run this in GPU")
 
     args = parser.parse_args()
     args_dict = vars(args)
