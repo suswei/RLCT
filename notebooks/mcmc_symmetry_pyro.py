@@ -2,12 +2,6 @@
 # http://pyro.ai/numpyro/bnn.html
 # http://docs.pyro.ai/en/stable/mcmc.html
 
-#
-# TODO: 
-# - parallelisation checks
-# - different true distribution
-# - different nonlinearity
-
 import torch
 import argparse
 import time
@@ -17,6 +11,7 @@ import os
 import math
 import torch.multiprocessing
 from torch.multiprocessing import Process, Manager
+from functools import partial
 
 import pyro
 import pyro.distributions as dist
@@ -40,14 +35,10 @@ os.environ['OMP_NUM_THREADS'] = '1'
 #export MKL_DEBUG_CPU_TYPE=5
 #export MKL_SERIAL=YES; export OMP_NUM_THREADS=1
 
-# the non-linearity we use in our neural network
-def nonlin(x):
-    return torch.nn.functional.relu(x)
-    #return torch.tanh(x)
-
-# feedforward relu network with H hidden units, at "temperature" 1/beta
-# note that the return 
-def model(X, Y, H, beta, prior_sd):
+def silu(beta, x):
+    return x * torch.sigmoid( beta * x )
+    
+def model(X, Y, H, beta, prior_sd, nonlin):
     M, N = X.shape[1], Y.shape[1]
 
     # w is the weight matrix R^2 --> R^H
@@ -71,12 +62,17 @@ def model(X, Y, H, beta, prior_sd):
 def run_inference(model, args, X, Y, beta, beta_num, samples):
     H = args.num_hidden
 
+    if( args.silu ):
+        nonlin = partial(silu, args.silu_beta)
+    else:
+        nonlin = torch.nn.functional.relu
+        
     start = time.time()
     kernel = NUTS(model, adapt_step_size=True, 
                 target_accept_prob=args.target_accept_prob,
                 jit_compile=args.jit)
     mcmc = MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup)
-    mcmc.run(X, Y, H, beta, args.prior_sd)
+    mcmc.run(X, Y, H, beta, args.prior_sd, nonlin)
     print("\n[beta = {}]".format(beta))
     mcmc.summary(prob=0.5)
 
@@ -97,6 +93,11 @@ def run_inference(model, args, X, Y, beta, beta_num, samples):
 #    return X, Y
 
 def get_data_true(args):
+    if( args.silu ):
+        nonlin = partial(silu, args.silu_beta)
+    else:
+        nonlin = torch.nn.functional.relu
+        
     # Sample from q(x) in R^2
     num_data = args.num_data
     M = args.num_input_nodes
@@ -136,8 +137,12 @@ def get_data_true(args):
     
     return X, Y
 
-def expected_nll_posterior(samples, X, Y):
-
+def expected_nll_posterior(samples, X, Y, args):
+    if( args.silu ):
+        nonlin = partial(silu, args.silu_beta)
+    else:
+        nonlin = torch.nn.functional.relu
+        
     nll = []
     for r in range(args.num_samples):
         w = samples['w'][r]
@@ -176,7 +181,7 @@ def main(args):
 
     # rlct_estimate = (expected_nll_posterior(samples[0], X, Y) - expected_nll_posterior(samples[1], X, Y))/(1/betas[0] - 1/betas[1])
 
-    estimates = [expected_nll_posterior(samples[i], X, Y) for i in range(len(samples))]
+    estimates = [expected_nll_posterior(samples[i], X, Y, args) for i in range(len(samples))]
     regr = LinearRegression(fit_intercept=True)
     one_on_betas = (1 / betas).reshape(args.num_betas, 1)
     regr.fit(one_on_betas, estimates)
@@ -184,6 +189,8 @@ def main(args):
     b_ols = regr.intercept_
     m_ols = regr.coef_[0]
 
+    torch.save(X, '{}/data_X.pt'.format(path))
+    torch.save(Y, '{}/data_Y.pt'.format(path))
     torch.save(m_ols, '{}/rlct_estimate.pt'.format(path))
     print('RLCT estimate {} with r2 coeff {}'.format(m_ols, score))
 
@@ -220,6 +227,8 @@ if __name__ == "__main__":
     parser.add_argument("--num-betas", default=8, type=int)
     parser.add_argument("--jit", action='store_true', default=False)
     parser.add_argument("--cuda", action='store_true', default=False, help="run this in GPU")
+    parser.add_argument("--silu", action='store_true', default=False)
+    parser.add_argument("--silu-beta", nargs="?", default=1.0, type=float)
 
     args = parser.parse_args()
     args_dict = vars(args)
