@@ -161,7 +161,7 @@ def expected_nll_posterior(samples, X, Y, args):
 
 def main(args):
     path = args.path
-    n = args.num_data # fix 15-9-2020 was args.num_samples
+    n = args.chain_temp # fix 15-9-2020 was args.num_samples
 
     X, Y = get_data_true(args)
 
@@ -228,12 +228,15 @@ if __name__ == "__main__":
     parser.add_argument("--jit", action='store_true', default=False)
     parser.add_argument("--cuda", action='store_true', default=False, help="run this in GPU")
     parser.add_argument("--silu", action='store_true', default=False)
+    parser.add_argument("--chain-temp",default=0, type=int)
     parser.add_argument("--silu-beta", nargs="?", default=1.0, type=float)
 
     args = parser.parse_args()
     args_dict = vars(args)
     print(args_dict)
 
+    if( args.chain_temp == 0 ): args.chain_temp = args.num_data
+    
     args_filename = args.save_prefix + '/' + args.experiment_id + '-args.pickle'
     
     # create path
