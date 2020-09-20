@@ -33,6 +33,8 @@ os.environ['OMP_NUM_THREADS'] = '1' # reduce thread usage in linalg
 # dataset
 def get_data(args):
 
+    torch.manual_seed(args.seed)
+
     train_size = int(args.n)
     valid_size = int(args.n * 0.5)
     test_size = int(10000)
@@ -282,6 +284,7 @@ def run_worker(i, n, G_mcmc_rrs, G_mcmc_lasts, G_maps, G_laplace_rrs, G_laplace_
         Y_train = train_loader.dataset[:][1]
         X_test = test_loader.dataset[:][0]
         Y_test = test_loader.dataset[:][1]
+        print('sum x_train to check dataset reproducibility {}'.format(sum(X_train)))
 
         model = map_train(args, train_loader, valid_loader, test_loader, oracle_mse)
         
@@ -391,10 +394,13 @@ def main():
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim) # number of parameters in reduced rank regression layers
     H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
     args.trueRLCT = theoretical_RLCT('rr', (args.input_dim, args.output_dim, H0, args.rr_hidden))
+
+    n_range = np.rint(np.logspace(2.3, 3.0, 10)).astype(int)
+    args.n_range = n_range
+
     print(args)
     torch.save(args,'{}_taskid{}_args.pt'.format(args.experiment_name, args.taskid))
 
-    n_range = np.rint(1/np.linspace(1/200, 1/1000, args.num_n)).astype(int)
 
     # We do each n in parallel
     manager = Manager()
@@ -500,7 +506,7 @@ def main():
     ax.errorbar(1/n_range, avg_G_mcmc_rr, yerr=std_G_mcmc_rr, fmt='-o', c='r', label='En G(n) for mcmc rr')
     plt.plot(1 / n_range, mcmc_rr_intercept + mcmc_rr_slope / n_range, 'r--', label='ols fit for mcmc rr')
     ax.errorbar(1/n_range, avg_G_mcmc_last, yerr=std_G_mcmc_last, fmt='-o', c='m', label='En G(n) for mcmc last')
-    plt.plot(1 / n_range, mcmc_rr_intercept + mcmc_rr_slope / n_range, 'm--', label='ols fit for mcmclast')
+    plt.plot(1 / n_range, mcmc_last_intercept + mcmc_last_slope / n_range, 'm--', label='ols fit for mcmclast')
     plt.xlabel('1/n')
     plt.ylabel('average generalization error')
     plt.title('map {:.4f}, network dim {}'
