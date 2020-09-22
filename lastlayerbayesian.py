@@ -33,8 +33,6 @@ os.environ['OMP_NUM_THREADS'] = '1' # reduce thread usage in linalg
 # dataset
 def get_data(args):
 
-    torch.manual_seed(args.seed)
-
     train_size = int(args.n)
     valid_size = int(args.n * 0.5)
     test_size = int(10000)
