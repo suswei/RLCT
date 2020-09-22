@@ -45,9 +45,9 @@ def get_data(args):
         X = X_rv.sample(torch.Size([train_size+valid_size]))
         X_test = args.X_test_std * X_rv.sample(torch.Size([test_size]))
 
-        if args.realizable:
+        if args.realizable == 1:
 
-            true_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.rr_relu)
+            true_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.use_rr_relu)
             true_model.eval()
             true_mean = true_model(X)
             true_mean_test = true_model(X_test)
@@ -80,10 +80,10 @@ def get_data(args):
 # model: small feedforward relu block, followed by reduced rank regression in last layers
 class Model(nn.Module):
 
-    def __init__(self, input_dim, output_dim, ffrelu_layers, ffrelu_hidden, rr_hidden, rr_relu):
+    def __init__(self, input_dim, output_dim, ffrelu_layers, ffrelu_hidden, rr_hidden, use_rr_relu):
         super(Model, self).__init__()
 
-        self.rr_relu = rr_relu
+        self.use_rr_relu = use_rr_relu
         
         # feedforward relu block
         self.enc_sizes = np.concatenate(
@@ -109,7 +109,7 @@ class Model(nn.Module):
         
     def forward(self, x):
         x = self.feature_map(x)
-        if self.rr_relu:
+        if self.use_rr_relu == 1:
             return self.rr_relu(x)
         else:
             return self.rr(x)
@@ -117,7 +117,7 @@ class Model(nn.Module):
 
 def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
 
-    model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.rr_relu)
+    model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.use_rr_relu)
 
     opt = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(patience=10, verbose=False, taskid=args.taskid)
@@ -141,7 +141,7 @@ def map_train(args, train_loader, valid_loader, test_loader, oracle_mse):
             for batch_idx, (data, target) in enumerate(valid_loader):
                 valid_loss += (torch.norm(model(data) - target, dim=1)**2).sum()
 
-        if args.early_stopping:
+        if args.use_early_stopping == 1:
             early_stopping(valid_loss, model)
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -222,16 +222,20 @@ def mcmc_last(model, args, X_train, Y_train, X_test, Y_test, lastlayeronly=False
     
     transformed_X_train = model.feature_map(X_train)
     transformed_X_test = model.feature_map(X_test)
+
     if lastlayeronly:
         transformed_X_train = torch.matmul(transformed_X_train, A)
         transformed_X_test = torch.matmul(transformed_X_test, A)
+        if args.use_rr_relu:
+            transformed_X_train = torch.relu(transformed_X_train)
+            transformed_X_test = torch.relu(transformed_X_test)
 
     kernel = NUTS(conditioned_pyro_rr, adapt_step_size=True)
     mcmc = MCMC(kernel, num_samples=args.R, warmup_steps=args.num_warmup, disable_progbar=True)
     if args.mcmc_prior_map == 1:
-        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=B, Amap=A, relu=args.rr_relu)
+        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=B, Amap=A, relu=args.use_rr_relu, lastlayeronly=lastlayeronly)
     else:
-        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=None, Amap=None, relu=args.rr_relu)
+        mcmc.run(pyro_rr, transformed_X_train, Y_train, args.rr_hidden, beta=1.0, Bmap=None, Amap=None, relu=args.use_rr_relu, lastlayeronly=lastlayeronly)
     sampled_weights = mcmc.get_samples()
 
     pred_prob = 0
@@ -239,22 +243,17 @@ def mcmc_last(model, args, X_train, Y_train, X_test, Y_test, lastlayeronly=False
     for r in range(0, args.R):
 
         if lastlayeronly:
-
             mean = torch.matmul(transformed_X_test, sampled_weights['B'][r,:,:])
-
         else:
-
-            if args.rr_relu:
+            if args.use_rr_relu:
                 z = torch.relu(torch.matmul(transformed_X_test, sampled_weights['A'][r, :, :]))
             else:
                 z = torch.matmul(transformed_X_test, sampled_weights['A'][r,:,:])
-
             mean = torch.matmul(z, sampled_weights['B'][r,:,:])
 
         pred_prob += (2 * np.pi) ** (-output_dim / 2) * torch.exp(-(1 / 2) * torch.norm(Y_test - mean, dim=1) ** 2)
 
     return -torch.log(pred_prob / args.R).mean()
-
 
 def run_worker(i, n, G_mcmc_rrs, G_mcmc_lasts, G_maps, G_laplace_rrs, G_laplace_lasts, entropys, args):
 
@@ -266,7 +265,7 @@ def run_worker(i, n, G_mcmc_rrs, G_mcmc_lasts, G_maps, G_laplace_rrs, G_laplace_
     entropy_array = np.empty(args.MCs)
 
     args.n = n
-    if args.minibatch == 0:
+    if args.use_minibatch == 0:
         args.batchsize = n
     else:
         args.batchsize = 32
@@ -282,7 +281,6 @@ def run_worker(i, n, G_mcmc_rrs, G_mcmc_lasts, G_maps, G_laplace_rrs, G_laplace_
         Y_train = train_loader.dataset[:][1]
         X_test = test_loader.dataset[:][0]
         Y_test = test_loader.dataset[:][1]
-        print('sum x_train to check dataset reproducibility {}'.format(sum(X_train)))
 
         model = map_train(args, train_loader, valid_loader, test_loader, oracle_mse)
         
@@ -341,13 +339,13 @@ def main():
 
     parser.add_argument('--rr-hidden', type=int, default=3, help='number of hidden units in final reduced regression layers')
 
-    parser.add_argument('--rr-relu', type=int, default=0, help='1 if true, 0 else')
+    parser.add_argument('--use-rr-relu', type=int, default=0, help='1 if true, 0 else')
 
-    parser.add_argument('--minibatch', type=int, default=0, help='1 if use minbatch sgd for map training')
+    parser.add_argument('--use-minibatch', type=int, default=0, help='1 if use minbatch sgd for map training')
 
     parser.add_argument('--train-epochs', type=int, default=5000, help='number of epochs to find MAP')
 
-    parser.add_argument('--early-stopping', type=int, default=0, help='1 to employ early stopping in map training based on validation loss')
+    parser.add_argument('--use-early-stopping', type=int, default=0, help='1 to employ early stopping in map training based on validation loss')
 
     parser.add_argument('--log-interval', type=int, default=500, metavar='N', help='how many batches to wait before logging training status')
 
@@ -373,21 +371,7 @@ def main():
     torch.manual_seed(args.seed)
     args.cuda = args.cuda and torch.cuda.is_available()
 
-    # change to boolean
-    if args.early_stopping == 0:
-        args.early_stopping = False
-    else:
-        args.early_stopping = True
-    if args.realizable == 0:
-        args.realizable = False
-    else:
-        args.realizable = True
-    if args.rr_relu == 0:
-        args.rr_relu = False
-    else:
-        args.rr_relu = True
-
-    init_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.rr_relu)
+    init_model = Model(args.input_dim, args.output_dim, args.ffrelu_layers, args.ffrelu_hidden, args.rr_hidden, args.use_rr_relu)
     args.total_param_count = sum(p.numel() for p in init_model.parameters() if p.requires_grad)
     args.w_dim = args.rr_hidden*(args.input_dim + args.output_dim) # number of parameters in reduced rank regression layers
     H0 = min(args.input_dim, args.output_dim, args.rr_hidden)
@@ -454,7 +438,7 @@ def main():
     std_G_laplace_last = [i.std() for i in G_laplace_lasts]
     
     #  get slopes of learning curves
-    if args.realizable:
+    if args.realizable == 1:
 
         ols_map = OLS(avg_G_map, 1 / n_range).fit()
         map_slope = ols_map.params[0]

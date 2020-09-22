@@ -140,6 +140,6 @@ def pyro_rr(X, Y, D_H, beta, Bmap=None, Amap=None, relu=False, lastlayeronly = F
     return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
 
-def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap, relu):
+def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap, relu, lastlayeronly):
     
-    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap, relu)
+    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap, relu, lastlayeronly)

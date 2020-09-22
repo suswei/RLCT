@@ -11,7 +11,7 @@ def main(taskid):
         'X-test-std': [1.0, 3.0],
         'realizable': [0, 1],
         'minibatch': [0, 1],
-        'rr-relu': [0, 1],
+        'use_rr-relu': [0, 1],
         'ffrelu-layers': [1, 5],
     }
     keys, values = zip(*hyperparameter_config.items())
