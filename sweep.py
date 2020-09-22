@@ -10,8 +10,8 @@ def main(taskid):
     hyperparameter_config = {
         'X-test-std': [1.0, 3.0],
         'realizable': [0, 1],
-        'minibatch': [0, 1],
-        'use_rr-relu': [0, 1],
+        'use-minibatch': [0, 1],
+        'use-rr-relu': [0, 1],
         'ffrelu-layers': [1, 5],
     }
     keys, values = zip(*hyperparameter_config.items())
@@ -24,16 +24,16 @@ def main(taskid):
               "--taskid %s "
               "--X-test-std %s "
               "--realizable %s "
-              "--rr-relu %s "
+              "--use-rr-relu %s "
               "--ffrelu-layers %s "
-              "--minibatch %s "
+              "--use-minibatch %s "
               %(experiment_name,
                 taskid,
                 temp['X-test-std'],
                 temp['realizable'],
-                temp['rr-relu'],
+                temp['use-rr-relu'],
                 temp['ffrelu-layers'],
-                temp['minibatch']))
+                temp['use-minibatch']))
 
 
 if __name__ == "__main__":
