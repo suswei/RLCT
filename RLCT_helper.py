@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import numpy as np
 from sklearn.linear_model import ElasticNet
 from matplotlib import pyplot as plt
-from statsmodels.regression.linear_model import OLS, GLS
+from statsmodels.regression.linear_model import OLS
 from statsmodels.tools.tools import add_constant
 
 import models

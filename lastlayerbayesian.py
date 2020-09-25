@@ -255,6 +255,7 @@ def mcmc_last(model, args, X_train, Y_train, X_test, Y_test, lastlayeronly=False
 
     return -torch.log(pred_prob / args.R).mean()
 
+
 def run_worker(i, n, G_mcmc_rrs, G_mcmc_lasts, G_maps, G_laplace_rrs, G_laplace_lasts, entropys, args):
 
     G_map = np.empty(args.MCs)
@@ -423,83 +424,7 @@ def main():
     results['laplace_rr'] = G_laplace_rrs
     results['laplace_last'] = G_laplace_lasts
     results['entropy'] = entropys
-    torch.save(results,'{}_taskid{}_results.pt'.format(args.experiment_name, args.taskid))
-
-    avg_G_map = [i.mean() for i in G_maps]
-    avg_G_mcmc_rr = [i.mean() for i in G_mcmc_rrs]
-    avg_G_mcmc_last = [i.mean() for i in G_mcmc_lasts]
-    avg_G_laplace_rr = [i.mean() for i in G_laplace_rrs]
-    avg_G_laplace_last = [i.mean() for i in G_laplace_lasts]
-    
-    std_G_map = [i.std() for i in G_maps]
-    std_G_mcmc_rr = [i.std() for i in G_mcmc_rrs]
-    std_G_mcmc_last = [i.std() for i in G_mcmc_lasts]
-    std_G_laplace_rr = [i.std() for i in G_laplace_rrs]
-    std_G_laplace_last = [i.std() for i in G_laplace_lasts]
-    
-    #  get slopes of learning curves
-    if args.realizable == 1:
-
-        ols_map = OLS(avg_G_map, 1 / n_range).fit()
-        map_slope = ols_map.params[0]
-
-        ols_mcmc_rr = OLS(avg_G_mcmc_rr, 1 / n_range).fit()
-        mcmc_rr_intercept = 0.0
-        mcmc_rr_slope = ols_mcmc_rr.params[0]
-
-        ols_mcmc_last = OLS(avg_G_mcmc_last, 1 / n_range).fit()
-        mcmc_last_intercept = 0.0
-        mcmc_last_slope = ols_mcmc_last.params[0]
-
-        ols_laplace_rr = OLS(avg_G_laplace_rr, 1 / n_range).fit()
-        laplace_rr_intercept = 0.0
-        laplace_rr_slope = ols_laplace_rr.params[0]
-
-        ols_laplace_last = OLS(avg_G_laplace_last, 1 / n_range).fit()
-        laplace_last_intercept = 0.0
-        laplace_last_slope = ols_laplace_last.params[0]
-
-    else:
-
-        ols_map = OLS(avg_G_map, add_constant(1 / n_range)).fit()
-        map_slope = ols_map.params[1]
-
-        ols_mcmc_rr = OLS(avg_G_mcmc_rr, add_constant(1 / n_range)).fit()
-        mcmc_rr_intercept = ols_mcmc_rr.params[0]
-        mcmc_rr_slope = ols_mcmc_rr.params[1]
-
-        ols_mcmc_last = OLS(avg_G_mcmc_last, add_constant(1 / n_range)).fit()
-        mcmc_last_intercept = ols_mcmc_last.params[0]
-        mcmc_last_slope = ols_mcmc_last.params[1]
-
-        ols_laplace_rr = OLS(avg_G_laplace_rr, add_constant(1 / n_range)).fit()
-        laplace_rr_intercept = ols_laplace_rr.params[0]
-        laplace_rr_slope = ols_laplace_rr.params[1]
-
-        ols_laplace_last = OLS(avg_G_laplace_last, add_constant(1 / n_range)).fit()
-        laplace_last_intercept = ols_laplace_last.params[0]
-        laplace_last_slope = ols_laplace_last.params[0]
-        
-    # learning curves
-    fig, ax = plt.subplots()
-    # ax.errorbar(1/n_range, avg_G_laplace_rr, yerr=std_G_laplace_rr, fmt='-o', c='k', label='En G(n) for rr layers laplace')
-    # ax.errorbar(1/n_range, avg_G_laplace_last, yerr=std_G_laplace_last, fmt='-o', c='b', label='En G(n) for laplace last')
-    ax.errorbar(1/n_range, avg_G_map, yerr=std_G_map, fmt='-o', c='g', label='En G(n) for MAP')
-    ax.errorbar(1/n_range, avg_G_mcmc_rr, yerr=std_G_mcmc_rr, fmt='-o', c='r', label='En G(n) for mcmc rr')
-    plt.plot(1 / n_range, mcmc_rr_intercept + mcmc_rr_slope / n_range, 'r--', label='ols fit for mcmc rr')
-    ax.errorbar(1/n_range, avg_G_mcmc_last, yerr=std_G_mcmc_last, fmt='-o', c='m', label='En G(n) for mcmc last')
-    plt.plot(1 / n_range, mcmc_last_intercept + mcmc_last_slope / n_range, 'm--', label='ols fit for mcmclast')
-    plt.xlabel('1/n')
-    plt.ylabel('average generalization error')
-    plt.title('map {:.4f}, network dim {}'
-              '\n rr: mcmc {:.4f}, laplace {:.4f}, RLCT {}, dim {}'
-              '\n last: mcmc {:.4f}, laplace {:.4f}, RLCT {}, dim {}'
-              .format(map_slope, args.total_param_count,
-                      mcmc_rr_slope, laplace_rr_slope, args.trueRLCT, args.w_dim,
-                      mcmc_last_slope, laplace_last_slope, args.rr_hidden*args.output_dim/2, args.rr_hidden*args.output_dim))
-    plt.legend()
-    plt.savefig('{}_taskid{}.png'.format(args.experiment_name, args.taskid))
-    # DM: plt.show()
+    torch.save(results,'lastlayersims/{}_taskid{}_results.pt'.format(args.experiment_name, args.taskid))
 
 
 if __name__ == "__main__":
