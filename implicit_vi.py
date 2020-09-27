@@ -109,7 +109,7 @@ def train_implicitVI(train_loader, valid_loader, args, mc, beta_index, saveimgpa
                 G.zero_grad()
                 D.zero_grad()
 
-            data, target = load_minibatch(args, data, target)
+            # data, target = load_minibatch(args, data, target)
 
             # opt generator
             eps = randn((args.epsilon_mc, args.epsilon_dim), args.cuda)

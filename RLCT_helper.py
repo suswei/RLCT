@@ -6,10 +6,36 @@ from torch.autograd import Variable
 import numpy as np
 from sklearn.linear_model import ElasticNet
 from matplotlib import pyplot as plt
-from statsmodels.regression.linear_model import OLS, GLS
+from statsmodels.regression.linear_model import OLS
 from statsmodels.tools.tools import add_constant
 
 import models
+
+
+def theoretical_RLCT(model,params):
+    if model == 'rr':
+        input_dim, output_dim, H0, H = params
+        # determining theoretical RLCT
+        cond1 = (output_dim + H0) <= (input_dim + H)
+        cond2 = (input_dim + H0) <= (output_dim + H)
+        cond3 = (H + H0) <= (input_dim + output_dim)
+        if cond1 and cond2 and cond3:
+            trueRLCT = (2 * (H + H0) * (input_dim + output_dim)
+                             - (input_dim - output_dim) * (input_dim - output_dim)
+                             - (H + H0) * (H + H0)) / 8  # case 1a in Aoygai
+            if (input_dim + output_dim + H + H0) % 2 == 1:  # case 1b in Aoyagi
+                trueRLCT = (2 * (H + H0) * (input_dim + output_dim) - (
+                        input_dim - output_dim) * (input_dim - output_dim) - (H + H0) * (
+                                         H + H0) + 1) / 8
+        if (input_dim + H) < (output_dim + H0):  # case 2 in Aoyagi
+            trueRLCT = (H * (input_dim - H0) + output_dim * H0) / 2
+        if (output_dim + H) < (input_dim + H0):  # case 3 in Aoyagi
+            trueRLCT = (H * (output_dim - H0) + input_dim * H0) / 2
+        if (input_dim + output_dim) < (H + H0):  # case 4 in Aoyagi
+            trueRLCT = input_dim * output_dim / 2
+        # For practical use, the case of input_dim >> H and output_dim >>H are considered, so Case (4) does not occur.
+
+    return trueRLCT
 
 
 def lsfit_lambda(temperedNLL_perMC_perBeta, args, saveimgname):
@@ -182,6 +208,13 @@ def weights_to_dict(args, sampled_weights):
 
             list_of_param_dicts.append({'a': a_params, 'b': b_params}.copy())
 
+        elif args.dataset == 'linear':
+
+            a_params = sampled_weights[i, 0:(args.input_dim * args.output_dim)].reshape(args.input_dim, args.output_dim)
+
+            list_of_param_dicts.append({'a': a_params}.copy())
+
+
         elif args.dataset == 'ffrelu_synthetic':
 
             W1 = sampled_weights[i, 0:(args.input_dim * args.H1)].reshape(args.input_dim, args.H1)
@@ -226,7 +259,16 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         loss = nn.MSELoss(reduction='sum')
         mean = torch.matmul(torch.matmul(x, param_dictionary['a']), param_dictionary['b'])
 
-        return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        # return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        return loss(y, mean)
+
+    elif args.dataset == 'linear':
+
+        loss = nn.MSELoss(reduction='sum')
+        mean = torch.matmul(x, param_dictionary['a'])
+
+        # return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
+        return loss(y, mean)
 
     elif args.dataset == 'ffrelu_synthetic':
 
@@ -238,7 +280,6 @@ def calculate_nllsum_paramdict(args, y, x, param_dictionary):
         loss = nn.MSELoss(reduction='sum')
 
         return len(y) * args.output_dim * 0.5 * np.log(2 * np.pi) + 0.5 * loss(y, mean)
-
 
 
 # TODO: this test module is from pyvarinf package, probably doesn't make sense for current framework
@@ -263,46 +304,48 @@ def test(epoch, test_loader, model, args, verbose=False):
             100. * correct / len(test_loader.dataset)))
 
 
-# class EarlyStopping:
-#     """Early stops the training if validation loss doesn't improve after a given patience."""
-#     def __init__(self, patience=7, verbose=False, delta=0):
-#         """
-#         Args:
-#             patience (int): How long to wait after last time validation loss improved.
-#                             Default: 7
-#             verbose (bool): If True, prints a message for each validation loss improvement.
-#                             Default: False
-#             delta (float): Minimum change in the monitored quantity to qualify as an improvement.
-#                             Default: 0
-#         """
-#         self.patience = patience
-#         self.verbose = verbose
-#         self.counter = 0
-#         self.best_score = None
-#         self.early_stop = False
-#         self.val_loss_min = np.Inf
-#         self.delta = delta
-#
-#     def __call__(self, val_loss, model):
-#
-#         score = -val_loss
-#
-#         if self.best_score is None:
-#             self.best_score = score
-#             self.save_checkpoint(val_loss, model)
-#         elif score < self.best_score + self.delta:
-#             self.counter += 1
-#             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-#             if self.counter >= self.patience:
-#                 self.early_stop = True
-#         else:
-#             self.best_score = score
-#             self.save_checkpoint(val_loss, model)
-#             self.counter = 0
-#
-#     def save_checkpoint(self, val_loss, model):
-#         '''Saves model when validation loss decrease.'''
-#         if self.verbose:
-#             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-#         torch.save(model.state_dict(), 'checkpoint.pt')
-#         self.val_loss_min = val_loss
+class EarlyStopping:
+    """Early stops the training if validation loss doesn't improve after a given patience."""
+    def __init__(self, patience=7, verbose=False, delta=0, taskid=None):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each validation loss improvement.
+                            Default: False
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+                            Default: 0
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.taskid = taskid
+
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        '''Saves model when validation loss decrease.'''
+        if self.verbose:
+            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        if self.taskid is not None:
+            torch.save(model.state_dict(), 'checkpoint{}.pt'.format(self.taskid))
+        self.val_loss_min = val_loss

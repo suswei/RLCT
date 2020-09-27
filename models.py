@@ -78,51 +78,68 @@ class reducedrank(nn.Module):
         return x
 
 
-# feedforward relu network with D_H hidden units, at "temperature" 1/beta
-def pyro_tanh(X, D_H, beta):
+def pyro_tanh(X, D_H, beta, Bmap=None, Amap=None):
 
     D_X = X.shape[1]
 
     # sample first layer (we put unit normal priors on all weights)
-    w = pyro.sample("w", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
-    z1 = torch.tanh(torch.matmul(X, w))   # N D_H  <= first layer of activations
+    if Amap is not None:
+        A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
+    else:
+        A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+    z1 = torch.tanh(torch.matmul(X, A))   # N D_H  <= first layer of activations
 
     # sample second layer
-    q = pyro.sample("q", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
-    z2 = torch.matmul(z1, q)
+    if Bmap is not None:
+        B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, 1))))  # D_H D_H
+    else:
+        B = pyro.sample("B", dist.Normal(torch.zeros((D_H, 1)), torch.ones((D_H, 1))))  # D_H D_H
+    z2 = torch.matmul(z1, B)
 
     # TODO: transform not working
     # return pyro.sample("Y", dist.TransformedDistribution(dist.Normal(z2, 1.0), transforms.PowerTransform(beta)))
     return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
 
-def conditioned_pyro_tanh(pyro_tanh, X,Y,D_H,beta):
-    return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta)
+def conditioned_pyro_tanh(pyro_tanh, X, Y, D_H, beta, Bmap, Amap):
+    
+    return poutine.condition(pyro_tanh, data={"Y": Y})(X, D_H, beta, Bmap, Amap)
 
 
-def pyro_ffrelu(X, Y, D_H, beta):
+def pyro_rr(X, Y, D_H, beta, Bmap=None, Amap=None, relu=False, lastlayeronly = False):
 
-    D_X, D_Y = X.shape[1], Y.shape[1]
-    prior_std = 10.0
+    D_X = X.shape[1]
+    D_Y = Y.shape[1]
 
-    w1 = pyro.sample("w1", dist.Normal(torch.zeros((D_X, D_H)), prior_std*torch.ones((D_X, D_H))))  # D_X D_H
-    b1 = pyro.sample("b1", dist.Normal(torch.zeros((1, D_H)), prior_std*torch.ones((1, D_H))))  # D_X D_H
-    z1 = torch.relu(torch.matmul(X, w1)+b1)   # N D_H  <= first layer of activations
+    if lastlayeronly:
+        # sample B
+        if Bmap is not None:
+            B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
+        else:
+            B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
+        z2 = torch.matmul(X, B)
 
-    w2 = pyro.sample("w2", dist.Normal(torch.zeros((D_H, D_H)), prior_std*torch.ones((D_H, D_H))))  # D_X D_H
-    b2 = pyro.sample("b2", dist.Normal(torch.zeros((1, D_H)), prior_std*torch.ones((1, D_H))))  # D_X D_H
-    z2 = torch.relu(torch.matmul(z1, w2)+b2)   # N D_H  <= first layer of activations
+    else:
 
-    w3 = pyro.sample("w3", dist.Normal(torch.zeros((D_H, D_H)), prior_std*torch.ones((D_H, D_H))))  # D_X D_H
-    b3 = pyro.sample("b3", dist.Normal(torch.zeros((1, D_H)), prior_std*torch.ones((1, D_H))))  # D_X D_H
-    z3 = torch.relu(torch.matmul(z2, w3)+b3)   # N D_H  <= first layer of activations
+        # sample A (we put unit normal priors on all weights)
+        if Amap is not None:
+            A = pyro.sample("A", dist.Normal(Amap, torch.ones((D_X, D_H))))  # D_X D_H
+        else:
+            A = pyro.sample("A", dist.Normal(torch.zeros((D_X, D_H)), torch.ones((D_X, D_H))))  # D_X D_H
+        z1 = torch.matmul(X, A)
+        if relu:
+            z1 = torch.relu(z1)
 
-    w4 = pyro.sample("w4", dist.Normal(torch.zeros((D_H, D_H)), prior_std*torch.ones((D_H, D_H))))  # D_X D_H
-    b4 = pyro.sample("b4", dist.Normal(torch.zeros((1, D_H)), prior_std*torch.ones((1, D_H))))  # D_X D_H
-    z4 = torch.relu(torch.matmul(z3, w4)+b4)   # N D_H  <= first layer of activations
+        # sample B
+        if Bmap is not None:
+            B = pyro.sample("B", dist.Normal(Bmap, torch.ones((D_H, D_Y))))  # D_H D_Y
+        else:
+            B = pyro.sample("B", dist.Normal(torch.zeros((D_H, D_Y)), torch.ones((D_H, D_Y))))  # D_H D_Y
+        z2 = torch.matmul(z1, B)
 
-    w5 = pyro.sample("w5", dist.Normal(torch.zeros((D_H, D_Y)), prior_std*torch.ones((D_H, D_Y))))  # D_X D_H
-    b5 = pyro.sample("b5", dist.Normal(torch.zeros((1, D_Y)), prior_std*torch.ones((1, D_Y))))  # D_X D_H
-    z5 = torch.matmul(z4, w5)+b5  # N D_H  <= first layer of activations
+    return pyro.sample("Y", dist.Normal(z2, 1/np.sqrt(beta)))
 
-    pyro.sample("Y", dist.Normal(z5, 1 / np.sqrt(beta)), obs=Y)
+
+def conditioned_pyro_rr(pyro_rr, X, Y, D_H, beta, Bmap, Amap, relu, lastlayeronly):
+    
+    return poutine.condition(pyro_rr, data={"Y": Y})(X, Y, D_H, beta, Bmap, Amap, relu, lastlayeronly)

@@ -15,6 +15,7 @@ import pickle
 import math
 import logging
 import sys
+from RLCT_helper import *
 
 # TODO: Add 3D support
 def posterior_viz(train_loader, sampled_weights, args, beta_index, saveimgpath):
