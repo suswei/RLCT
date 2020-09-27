@@ -3,17 +3,16 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools.tools import add_constant
 from matplotlib import pyplot as plt
 import seaborn as sns
-import argparse
 import numpy as np
 import pandas as pd
 
 
-def main(experiment_name, taskid):
+def main(results_path, taskid, savepath):
 
     # load simulation resutls
-    args = torch.load('lastlayersims/{}_taskid{}_args.pt'.format(experiment_name, taskid))
+    args = torch.load('{}_taskid{}_args.pt'.format(results_path, taskid))
     n_range = args.n_range
-    results = torch.load('lastlayersims/{}_taskid{}_results.pt'.format(experiment_name, taskid))
+    results = torch.load('{}_taskid{}_results.pt'.format(results_path, taskid))
 
     # rename to prettier key names in results
     results['last two layers (A,B) MCMC'] = results.pop('mcmc_rr')
@@ -22,6 +21,14 @@ def main(experiment_name, taskid):
     results['last layer only (B) Laplace'] = results.pop('laplace_last')
     results['MAP'] = results.pop('map')
     del results['entropy']
+
+    # title for figure and table caption
+    title = ''
+    title += '{} hidden layer(s) in g network, '.format(args.ffrelu_layers)
+    if args.use_rr_relu:
+        title += 'ReLU activation in h network'
+    else:
+        title += 'identity activation in h network'
 
     # get learning coefficient table
     avg_gen_err = dict()
@@ -46,8 +53,8 @@ def main(experiment_name, taskid):
     lambdas = pd.DataFrame({'method': methods, 'learning coefficient': learning_coefficients,'R squared': R2})
     print(lambdas.to_latex(index=False))
 
-    with open('lastlayersims/publication_taskid{}.tex'.format(args.taskid), 'w') as tf:
-        tf.write(lambdas.to_latex())
+    with open('{}/taskid{}.tex'.format(savepath, args.taskid), 'w') as tf:
+        tf.write(lambdas.to_latex(index=False))
 
     # create list of pandas dataframes for plotting n versus E_n G(n)
     df = []
@@ -60,20 +67,12 @@ def main(experiment_name, taskid):
     all_results = pd.concat(df)
     ax = sns.pointplot(x="sample size", y="average generalization error", hue="method",
                        data=all_results, dodge=True)
-    title = ''
-    title += '{} hidden layer(s) in g network, '.format(args.ffrelu_layers)
-    if args.use_rr_relu:
-        title += 'ReLU activation in h network'
-    else:
-        title += 'identity activation in h network'
 
     plt.title(title)
-    plt.savefig('lastlayersims/publication_taskid{}.png'.format(args.taskid))
+    plt.savefig('{}/taskid{}.png'.format(savepath, args.taskid))
     plt.close()
 
-
-
-
-experiment_name ='submission'
+savepath = '../../Documents/Formatting-Instructions-for-ICLR-2021-Conference-Submissions/graphics'
+results_path = 'lastlayersims/submission'
 for taskid in range(32):
-    main(experiment_name,taskid)
+    main(results_path,taskid,savepath)
