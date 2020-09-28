@@ -75,4 +75,4 @@ def main(results_path, taskid, savepath):
 savepath = '../../Documents/Formatting-Instructions-for-ICLR-2021-Conference-Submissions/graphics'
 results_path = 'lastlayersims/submission'
 for taskid in range(32):
-    main(results_path,taskid,savepath)
+    main(results_path, taskid, savepath)

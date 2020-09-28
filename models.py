@@ -6,12 +6,7 @@ import pyro
 import pyro.distributions as dist
 import pyro.poutine as poutine
 
-from torch.distributions import transforms
-
 import numpy as np
-from torch.distributions.transformed_distribution import TransformedDistribution
-from torch.distributions.transforms import PowerTransform
-from torch.distributions import Normal
 
 class cnn(nn.Module):
     def __init__(self,output_dim):

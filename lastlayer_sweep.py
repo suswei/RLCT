@@ -18,7 +18,7 @@ def main(taskid):
     hyperparameter_experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
     temp = hyperparameter_experiments[taskid]
 
-    os.system("python3 lastlayerbayesian.py "
+    os.system("python3 lastlayer_main.py "
               "--num-n 10 --MCs 30 "
               "--experiment-name %s "
               "--taskid %s "

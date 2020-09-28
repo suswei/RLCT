@@ -1,25 +1,27 @@
-# wiseodd/last_layer_laplace
+import argparse
+import os
+import itertools
+import time
 
-import matplotlib
-matplotlib.use("Agg")
 from torch.distributions.multivariate_normal import MultivariateNormal
-
-import seaborn as sns
-sns.set_style('white')
-
 from torch.utils.data import TensorDataset
-
-from main import *
-from utils import exact_hessian
-
-plt = matplotlib.pyplot
-plt.rcParams["axes.titlesize"] = 8
-
-# DM
+import torch.optim as optim
+from torch.distributions import Normal
 import torch.multiprocessing
 from torch.multiprocessing import Process, Manager
 
-# DM
+import matplotlib
+matplotlib.use("Agg")
+plt = matplotlib.pyplot
+plt.rcParams["axes.titlesize"] = 8
+import seaborn as sns
+sns.set_style('white')
+
+from utils import *
+from models import *
+
+from pyro.infer import MCMC, NUTS
+
 # This is required both to get AMD CPUs to work well, but also
 # to disable the aggressive multi-threading of the underlying
 # linear algebra libraries, which interferes with our multiprocessing
@@ -382,7 +384,10 @@ def main():
     args.n_range = n_range
 
     print(args)
-    torch.save(args,'{}_taskid{}_args.pt'.format(args.experiment_name, args.taskid))
+    if not os.path.exists('lastlayersims/'):
+        os.mkdir('lastlayersims/')
+
+    torch.save(args,'lastlayersims/{}_taskid{}_args.pt'.format(args.experiment_name, args.taskid))
 
 
     # We do each n in parallel
