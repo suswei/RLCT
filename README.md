@@ -10,3 +10,8 @@ Run lastlayer_visualize.py to produce pretty learning curves and latex tables su
 The random seed was set to 43 in lastlayerbayesian.py.
 
 ## Reproducing symmetry experiments
+
+The results are obtained by running mcmc_symmetry_pyro.py with the following configuration
+???
+
+ 
