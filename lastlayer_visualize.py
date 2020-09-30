@@ -72,6 +72,24 @@ def main(results_path, taskid, savepath):
     plt.savefig('{}/taskid{}.png'.format(savepath, args.taskid))
     plt.close()
 
+    # create list of pandas dataframes for plotting n versus E_n G(n)
+    df = []
+    for key in results:
+        if key in ['last two layers (A,B) Laplace', 'last layer only (B) Laplace']:
+            for i in range(len(n_range)):
+                df += [pd.DataFrame({'sample size': np.repeat(n_range[i], args.MCs),
+                                     'average generalization error': results[key][i],
+                                     'method': np.repeat(key, args.MCs)})]
+    all_results = pd.concat(df)
+    ax = sns.pointplot(x="sample size", y="average generalization error", hue="method",
+                       data=all_results, dodge=True)
+
+    plt.title(title)
+    plt.savefig('{}/laplace_taskid{}.png'.format(savepath, args.taskid))
+    plt.close()
+
+
+
 savepath = '../../Documents/Formatting-Instructions-for-ICLR-2021-Conference-Submissions/graphics'
 results_path = 'lastlayersims/submission'
 for taskid in range(32):
