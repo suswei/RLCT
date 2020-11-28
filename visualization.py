@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 import os
 import argparse
 import random
-from sklearn.manifold import TSNE
-import seaborn as sns
+# from sklearn.manifold import TSNE
+# import seaborn as sns
 import pandas as pd
 from random import randint
 import scipy.stats as st
